@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,107 +11,370 @@
   <!-- PapaParse for CSV processing -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-      background-color: #f5f5f5;
+    :root {
+      /* Light theme variables */
+      --bg-primary: #f5f5f5;
+      --bg-secondary: #ffffff;
+      --text-primary: #333333;
+      --text-secondary: #666666;
+      --border-color: #dddddd;
+      --shadow-color: rgba(0, 0, 0, 0.1);
+      --accent-color: #4a90e2;
+      --success-color: #2ecc71;
+      --warning-color: #f1c40f;
+      --error-color: #e74c3c;
+      --chart-bg: rgba(255, 255, 255, 0.9);
+      --notification-bg: rgba(255, 255, 255, 0.95);
     }
+
+    [data-theme="dark"] {
+      /* Dark theme variables */
+      --bg-primary: #1a1a1a;
+      --bg-secondary: #2d2d2d;
+      --text-primary: #ffffff;
+      --text-secondary: #cccccc;
+      --border-color: #404040;
+      --shadow-color: rgba(0, 0, 0, 0.3);
+      --accent-color: #64b5f6;
+      --success-color: #66bb6a;
+      --warning-color: #ffd54f;
+      --error-color: #ef5350;
+      --chart-bg: rgba(45, 45, 45, 0.9);
+      --notification-bg: rgba(45, 45, 45, 0.95);
+    }
+
+    /* Theme transition */
+    * {
+      transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+    }
+
     .container {
       max-width: 1200px;
       margin: 0 auto;
     }
-    h1, h2, h3 {
-      color: #333;
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
     }
+
+    .theme-toggle {
+      background: var(--bg-secondary);
+      border: 2px solid var(--border-color);
+      border-radius: 20px;
+      padding: 5px 15px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9em;
+      color: var(--text-primary);
+      transition: transform 0.2s ease;
+    }
+
+    .theme-toggle:hover {
+      transform: scale(1.05);
+    }
+
+    .theme-toggle:active {
+      transform: scale(0.95);
+    }
+
+    h1, h2, h3 {
+      color: var(--text-primary);
+      margin: 0;
+    }
+
     hr {
       margin: 40px 0;
       border: none;
-      border-top: 1px solid #ddd;
+      border-top: 1px solid var(--border-color);
     }
+
     button {
-      margin: 5px;
-      padding: 10px 15px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      border: 2px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px 20px;
       font-size: 1em;
       cursor: pointer;
+      transition: all 0.3s ease;
     }
+
+    button:hover {
+      background: var(--accent-color);
+      color: white;
+      border-color: var(--accent-color);
+      transform: translateY(-2px);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     #liveData, #debugLog {
-      background-color: #fff;
-      border: 1px solid #ddd;
-      padding: 10px;
-      margin: 10px 0;
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 15px;
+      margin: 15px 0;
+      box-shadow: 0 2px 8px var(--shadow-color);
     }
+
     #liveData {
       min-height: 50px;
     }
+
     #debugLog {
       max-height: 200px;
       overflow-y: auto;
-      font-family: monospace;
+      font-family: 'Consolas', monospace;
       font-size: 0.9em;
       white-space: pre-wrap;
     }
+
     .file-input, .stats-container, .chart-container {
-      background: white;
+      background: var(--bg-secondary);
       padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      border-radius: 12px;
+      box-shadow: 0 4px 12px var(--shadow-color);
       margin-bottom: 30px;
+      border: 1px solid var(--border-color);
     }
+
     .stats-container {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
       gap: 20px;
     }
+
     .stat-card {
-      background: #fff;
-      padding: 15px;
-      border-radius: 6px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+      background: var(--bg-secondary);
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px var(--shadow-color);
+      border: 1px solid var(--border-color);
     }
+
     .chart-controls {
       display: flex;
       gap: 10px;
       margin-bottom: 20px;
       justify-content: center;
     }
-    
+
     .chart-toggle {
       padding: 10px 20px;
       border: none;
-      border-radius: 4px;
-      font-weight: bold;
+      border-radius: 8px;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.3s ease;
       opacity: 0.7;
     }
-    
+
     .chart-toggle.active {
       opacity: 1;
       transform: scale(1.05);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      box-shadow: 0 4px 12px var(--shadow-color);
     }
-    
-    .chart-toggle.red { background-color: rgba(255, 99, 132, 0.2); color: rgb(255, 99, 132); }
-    .chart-toggle.green { background-color: rgba(75, 192, 192, 0.2); color: rgb(75, 192, 192); }
-    .chart-toggle.blue { background-color: rgba(54, 162, 235, 0.2); color: rgb(54, 162, 235); }
-    
-    .chart-toggle.red.active { background-color: rgba(255, 99, 132, 0.4); }
-    .chart-toggle.green.active { background-color: rgba(75, 192, 192, 0.4); }
-    .chart-toggle.blue.active { background-color: rgba(54, 162, 235, 0.4); }
-    
-    .chart-container {
-      display: none;
-      transition: opacity 0.3s ease;
+
+    /* Notification system */
+    .notification-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
     }
-    
-    .chart-container.active {
-      display: block;
-      animation: fadeIn 0.3s ease;
+
+    .notification {
+      background: var(--notification-bg);
+      color: var(--text-primary);
+      padding: 15px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px var(--shadow-color);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: auto;
+      animation: slideIn 0.3s ease forwards;
+      max-width: 300px;
+      border-left: 4px solid var(--accent-color);
     }
-    
+
+    .notification.success { border-color: var(--success-color); }
+    .notification.warning { border-color: var(--warning-color); }
+    .notification.error { border-color: var(--error-color); }
+
+    .notification.fade-out {
+      animation: slideOut 0.3s ease forwards;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes slideOut {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+    }
+
     @keyframes fadeIn {
       from { opacity: 0; }
       to { opacity: 1; }
+    }
+
+    /* Chart theme adaptations */
+    .chart-container {
+      background: var(--chart-bg);
+    }
+
+    canvas {
+      border-radius: 8px;
+    }
+
+    .live-data-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      padding: 15px;
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      box-shadow: 0 2px 8px var(--shadow-color);
+    }
+    
+    .data-section {
+      padding: 10px;
+      border-left: 3px solid var(--accent-color);
+    }
+    
+    .data-value {
+      font-family: 'Consolas', monospace;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    
+    .data-value.good { color: var(--success-color); }
+    .data-value.poor { color: var(--error-color); }
+    .data-value.calibrating { color: var(--warning-color); }
+    .data-value.recording { color: var(--success-color); }
+    .data-value.idle { color: var(--text-secondary); }
+    
+    #liveData {
+      margin: 20px 0;
+      transition: all 0.3s ease;
+    }
+
+    .calibration-message {
+      background: var(--bg-secondary);
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px var(--shadow-color);
+      margin: 20px 0;
+      border-left: 4px solid var(--accent-color);
+    }
+    
+    .calibration-message.error {
+      border-left-color: var(--error-color);
+    }
+    
+    .calibration-message h3 {
+      margin: 0 0 15px 0;
+      color: var(--text-primary);
+    }
+    
+    .calibration-message ol,
+    .calibration-message ul {
+      margin: 10px 0;
+      padding-left: 25px;
+    }
+    
+    .calibration-message li {
+      margin: 8px 0;
+      color: var(--text-secondary);
+    }
+
+    .initialization-steps {
+      margin: 15px 0;
+    }
+    
+    .step {
+      display: flex;
+      align-items: center;
+      margin: 10px 0;
+      gap: 10px;
+    }
+    
+    .step-indicator {
+      font-size: 1.2em;
+    }
+    
+    .calibration-progress {
+      margin: 20px 0;
+    }
+    
+    .progress-bar {
+      height: 6px;
+      background: var(--border-color);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    
+    .progress-indicator {
+      height: 100%;
+      background: var(--accent-color);
+      width: 0%;
+      animation: progress 30s linear;
+    }
+    
+    @keyframes progress {
+      from { width: 0%; }
+      to { width: 100%; }
+    }
+    
+    .calibration-message ol li {
+      opacity: 0.6;
+      transition: opacity 0.3s ease;
+    }
+    
+    .calibration-message ol li.active {
+      opacity: 1;
+      color: var(--text-primary);
+      font-weight: 600;
     }
   </style>
   <script>
@@ -189,12 +452,29 @@
         const liveDiv = document.getElementById("liveData");
         if (!liveDiv) return;
 
+        // Create a more detailed live data display
         liveDiv.innerHTML = `
-          <strong>Latest Gaze Data:</strong><br>
-          State: ${data.state || 'N/A'}<br>
-          X: ${data.docX || data.x || 'N/A'}<br>
-          Y: ${data.docY || data.y || 'N/A'}<br>
-          Timestamp: ${data.time || data.timestamp || 'N/A'}
+          <div class="live-data-grid">
+            <div class="data-section">
+              <strong>Gaze Data:</strong><br>
+              State: <span class="data-value">${data.state || 'N/A'}</span><br>
+              X: <span class="data-value">${(data.docX || data.x || 0).toFixed(2)}</span><br>
+              Y: <span class="data-value">${(data.docY || data.y || 0).toFixed(2)}</span><br>
+              Confidence: <span class="data-value ${(data.confidence || 0) > DATA_QUALITY_THRESHOLD ? 'good' : 'poor'}">${((data.confidence || 0) * 100).toFixed(1)}%</span>
+            </div>
+            <div class="data-section">
+              <strong>Head Position:</strong><br>
+              X: <span class="data-value">${(data.HeadX || 0).toFixed(2)}</span><br>
+              Y: <span class="data-value">${(data.HeadY || 0).toFixed(2)}</span><br>
+              Z: <span class="data-value">${(data.HeadZ || 0).toFixed(2)}</span>
+            </div>
+            <div class="data-section">
+              <strong>Session Info:</strong><br>
+              Points: <span class="data-value">${recordedData.length}</span><br>
+              Duration: <span class="data-value">${((now - recordedData[0]?.timestamp || now) / 1000).toFixed(1)}s</span><br>
+              Status: <span class="data-value ${isCalibrating ? 'calibrating' : (tracking ? 'recording' : 'idle')}">${isCalibrating ? 'Calibrating...' : (tracking ? 'Recording' : 'Idle')}</span>
+            </div>
+          </div>
         `;
       } catch (error) {
         console.error("Error in updateLiveData:", error);
@@ -207,6 +487,27 @@
         dataCollectionReady = false;
         recordedData = [];
         lastDataPoint = null;
+        
+        // Show initialization status
+        document.getElementById("liveData").innerHTML = `
+          <div class="calibration-message">
+            <h3>Initializing Eye Tracking System</h3>
+            <div class="initialization-steps">
+              <div class="step">
+                <span class="step-indicator">⚙️</span>
+                <span>Configuring tracking parameters...</span>
+              </div>
+              <div class="step">
+                <span class="step-indicator">📊</span>
+                <span>Setting up data structures...</span>
+              </div>
+              <div class="step">
+                <span class="step-indicator">🎥</span>
+                <span>Preparing camera access...</span>
+              </div>
+            </div>
+          </div>
+        `;
         
         // Set up data collection configuration
         const config = {
@@ -227,12 +528,92 @@
         resetDataStructures();
         
         dataCollectionReady = true;
+        // Start calibration automatically after initialization
+        setTimeout(() => {
+          if (dataCollectionReady) {
+            startCalibration();
+          }
+        }, 1000);
+        
         logMessage("Data collection system initialized successfully", 'success');
         return true;
       } catch (error) {
         console.error("Error initializing data collection:", error);
         logMessage("Failed to initialize data collection: " + error.message, 'error');
         return false;
+      }
+    }
+
+    // Separate calibration function
+    function startCalibration() {
+      try {
+        if (isCalibrating) return;
+        
+        // Show calibration instructions
+        document.getElementById("liveData").innerHTML = `
+          <div class="calibration-message">
+            <h3>Starting Calibration</h3>
+            <div class="calibration-progress">
+              <div class="progress-bar">
+                <div class="progress-indicator"></div>
+              </div>
+            </div>
+            <p>Please follow these steps:</p>
+            <ol>
+              <li class="active">Ensure your face is well-lit and centered</li>
+              <li>Follow the dot with your eyes as it moves</li>
+              <li>Keep your head still during calibration</li>
+              <li>Maintain focus on the calibration points</li>
+            </ol>
+          </div>
+        `;
+
+        isCalibrating = true;
+        calibrationAttempts++;
+
+        // Configure calibration callbacks
+        GazeCloudAPI.OnCalibrationComplete = function() {
+          isCalibrating = false;
+          tracking = true;
+          calibrationAttempts = 0;
+          startRecording();
+        };
+
+        // Start the calibration
+        GazeCloudAPI.StartEyeTracking();
+        logMessage("Calibration process started...", 'info');
+      } catch (error) {
+        console.error("Error in startCalibration:", error);
+        logMessage("Calibration failed to start: " + error.message, 'error');
+      }
+    }
+
+    // Separate recording function
+    function startRecording() {
+      try {
+        const startTime = Date.now();
+        logMessage("Calibration successful - Starting data recording...", 'success');
+        
+        // Initialize the live data display
+        document.getElementById("liveData").innerHTML = `
+          <div class="live-data-grid">
+            <div class="data-section">
+              <strong>Recording Status</strong><br>
+              <span class="data-value recording">Active</span><br>
+              <span class="data-value">Started: ${new Date().toLocaleTimeString()}</span>
+            </div>
+            <div class="data-section">
+              <strong>Data Collection</strong><br>
+              <span class="data-value">Points: 0</span><br>
+              <span class="data-value">Quality: Measuring...</span>
+            </div>
+          </div>
+        `;
+        
+        updateUIState(true);
+      } catch (error) {
+        console.error("Error in startRecording:", error);
+        logMessage("Failed to start recording: " + error.message, 'error');
       }
     }
 
@@ -353,89 +734,9 @@
           return;
         }
 
-        // Initialize data collection system
-        if (!initializeDataCollection()) {
-          logMessage("Failed to initialize data collection system", 'error');
-          return;
-        }
+        // Start the initialization process
+        initializeDataCollection();
 
-        isCalibrating = true;
-        calibrationAttempts++;
-
-        // Set up calibration timeout
-        const calibrationTimeout = setTimeout(() => {
-          if (isCalibrating) {
-            logMessage("Calibration timed out. Please try again.", 'error');
-            stopTracking();
-          }
-        }, CALIBRATION_TIMEOUT);
-
-        // Enhanced GazeCloud API configuration
-        GazeCloudAPI.OnCalibrationComplete = function() {
-          clearTimeout(calibrationTimeout);
-          isCalibrating = false;
-          tracking = true;
-          calibrationAttempts = 0;
-          logMessage("Calibration completed successfully! Beginning data collection...", 'success');
-          updateUIState(true);
-        };
-
-        GazeCloudAPI.OnResult = function(GazeData) {
-          try {
-            if (!tracking || !dataCollectionReady) return;
-
-            const processedData = processGazeData(GazeData);
-            if (!processedData) return;
-
-            recordedData.push(processedData);
-            if (recordedData.length > MAX_RECORDED_POINTS) {
-              recordedData = recordedData.slice(-MAX_RECORDED_POINTS);
-              logMessage("Trimming recorded data to prevent memory issues", 'warning');
-            }
-
-            updateLiveData(processedData);
-            if (recordedData.length % 100 === 0) {
-              logMessage(`Recording gaze data... (${recordedData.length} points, Quality: ${(processedData.confidence * 100).toFixed(1)}%)`, 'info');
-            }
-          } catch (error) {
-            console.error("Error in OnResult callback:", error);
-            logMessage("Error processing gaze data: " + error.message, 'error');
-          }
-        };
-
-        // Enhanced error handling callbacks
-        GazeCloudAPI.OnCalibrationFail = function() {
-          clearTimeout(calibrationTimeout);
-          isCalibrating = false;
-          tracking = false;
-          dataCollectionReady = false;
-          logMessage(`Calibration failed (Attempt ${calibrationAttempts} of ${MAX_CALIBRATION_ATTEMPTS})`, 'error');
-          updateUIState(false);
-        };
-
-        GazeCloudAPI.OnCamDenied = function() {
-          clearTimeout(calibrationTimeout);
-          isCalibrating = false;
-          tracking = false;
-          dataCollectionReady = false;
-          logMessage("Camera access denied. Please check your camera permissions and ensure no other application is using it.", 'error');
-          updateUIState(false);
-        };
-
-        GazeCloudAPI.OnError = function(msg) {
-          clearTimeout(calibrationTimeout);
-          isCalibrating = false;
-          tracking = false;
-          dataCollectionReady = false;
-          logMessage("GazeCloudAPI Error: " + msg, 'error');
-          updateUIState(false);
-        };
-
-        // Start the calibration and tracking process
-        logMessage("Starting calibration process... Please follow the on-screen instructions.", 'info');
-        updateUIState(false);
-        GazeCloudAPI.StartEyeTracking();
-        
       } catch (error) {
         console.error("Error in startTracking:", error);
         tracking = false;
@@ -969,7 +1270,10 @@
 </head>
 <body>
   <div class="container">
-    <h1>Eye Tracking Recorder & Analysis Dashboard</h1>
+    <div class="header">
+      <h1>Eye Tracking Recorder & Analysis Dashboard</h1>
+      <!-- Theme toggle will be inserted here by JavaScript -->
+    </div>
     
     <!-- LIVE TRACKING SECTION -->
     <section id="liveTrackingSection">
