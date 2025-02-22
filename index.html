@@ -1168,7 +1168,188 @@
       });
     }
 
-    // Enhanced start tracking function
+    // Add DataStorageService class definition
+    class DataStorageService {
+      constructor() {
+        this.currentSession = {
+          config: null,
+          gazeData: []
+        };
+        this.sessionStartTime = 0;
+        this.lastFixationStart = 0;
+        this.lastGazePoint = null;
+        this.fixationCount = 0;
+        this.totalFixationDuration = 0;
+        this.saccadeCount = 0;
+        this.totalSaccadeLength = 0;
+        this.blinkCount = 0;
+        this.lastBlinkTime = 0;
+      }
+
+      initializeSession(config) {
+        this.currentSession = {
+          config,
+          gazeData: []
+        };
+        this.sessionStartTime = Date.now();
+        this.lastFixationStart = 0;
+        this.lastGazePoint = null;
+        this.fixationCount = 0;
+        this.totalFixationDuration = 0;
+        this.saccadeCount = 0;
+        this.totalSaccadeLength = 0;
+        this.blinkCount = 0;
+        this.lastBlinkTime = Date.now();
+      }
+
+      addGazeData(data) {
+        if (!this.currentSession.config) {
+          throw new Error('No active session');
+        }
+        const enrichedData = this.calculateMetrics(data);
+        this.currentSession.gazeData.push(enrichedData);
+        this.lastGazePoint = enrichedData;
+        return enrichedData;
+      }
+
+      getCurrentSession() {
+        return this.currentSession;
+      }
+
+      clearSession() {
+        this.currentSession = {
+          config: null,
+          gazeData: []
+        };
+        this.sessionStartTime = 0;
+        this.lastFixationStart = 0;
+        this.lastGazePoint = null;
+        this.fixationCount = 0;
+        this.totalFixationDuration = 0;
+        this.saccadeCount = 0;
+        this.totalSaccadeLength = 0;
+        this.blinkCount = 0;
+        this.lastBlinkTime = 0;
+      }
+
+      getGazeDataCount() {
+        return this.currentSession.gazeData.length;
+      }
+
+      formatTime(timestamp) {
+        const date = new Date(timestamp);
+        return {
+          formattedTime: date.toTimeString().split(' ')[0] + '.' + String(date.getMilliseconds()).padStart(3, '0'),
+          formattedDate: date.toISOString().split('T')[0]
+        };
+      }
+
+      formatSessionTime(sessionTime) {
+        const minutes = Math.floor(sessionTime / 60000);
+        const seconds = Math.floor((sessionTime % 60000) / 1000);
+        const milliseconds = sessionTime % 1000;
+        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+      }
+
+      calculateMetrics(data) {
+        const now = Date.now();
+        const enrichedData = { ...data };
+        const sessionTime = now - this.sessionStartTime;
+        const { formattedTime, formattedDate } = this.formatTime(now);
+
+        // Add timestamps
+        enrichedData.timestamp = now;
+        enrichedData.sessionTime = sessionTime;
+        enrichedData.formattedTime = formattedTime;
+        enrichedData.formattedDate = formattedDate;
+        enrichedData.sessionTimeFormatted = this.formatSessionTime(sessionTime);
+
+        // Calculate fixation and saccade metrics
+        if (this.lastGazePoint) {
+          const distance = Math.sqrt(
+            Math.pow((data.x - this.lastGazePoint.x), 2) + 
+            Math.pow((data.y - this.lastGazePoint.y), 2)
+          );
+
+          const FIXATION_THRESHOLD = 30;
+          if (distance < FIXATION_THRESHOLD) {
+            const fixationDuration = now - this.lastFixationStart;
+            enrichedData.fixationDuration = fixationDuration;
+            this.totalFixationDuration += fixationDuration;
+            
+            if (!this.lastGazePoint.fixationDuration) {
+              this.fixationCount++;
+            }
+          } else {
+            this.lastFixationStart = now;
+            enrichedData.saccadeLength = distance;
+            this.saccadeCount++;
+            this.totalSaccadeLength += distance;
+          }
+
+          enrichedData.gazeDistance = distance;
+          
+          // Calculate velocities
+          const timeElapsed = now - this.lastGazePoint.timestamp;
+          enrichedData.gazeVelocity = distance / (timeElapsed / 1000); // pixels per second
+        } else {
+          this.lastFixationStart = now;
+        }
+
+        // Detect blinks
+        if (data.confidence && data.confidence < 0.1) {
+          if (now - this.lastBlinkTime > 300) {
+            this.blinkCount++;
+            this.lastBlinkTime = now;
+          }
+        }
+
+        // Calculate aggregate metrics
+        const sessionDuration = Math.max((now - this.sessionStartTime) / 1000 / 60, 1/60);
+        enrichedData.blinkRate = this.blinkCount / sessionDuration;
+        enrichedData.avgFixationDuration = this.totalFixationDuration / Math.max(this.fixationCount, 1);
+        enrichedData.fixationsPerMinute = this.fixationCount / sessionDuration;
+        enrichedData.avgSaccadeLength = this.totalSaccadeLength / Math.max(this.saccadeCount, 1);
+        enrichedData.saccadesPerMinute = this.saccadeCount / sessionDuration;
+
+        return enrichedData;
+      }
+    }
+
+    // Initialize DataStorageService instance
+    let dataStorage = new DataStorageService();
+
+    // Update handleGazeData function to use DataStorageService
+    function handleGazeData(GazeData) {
+      try {
+        if (!tracking || !dataCollectionReady) return;
+
+        const processedData = processGazeData(GazeData);
+        if (!processedData) return;
+
+        // Add data to storage service
+        const enrichedData = dataStorage.addGazeData(processedData);
+        
+        // Update UI with enriched data
+        updateLiveData(enrichedData);
+        
+        if (dataStorage.getGazeDataCount() % 50 === 0) {
+          const recentData = dataStorage.getCurrentSession().gazeData.slice(-50);
+          const avgConfidence = mean(recentData.map(d => d.confidence || 0));
+          logMessage(
+            `Recording active: ${dataStorage.getGazeDataCount()} points collected | ` +
+            `Recent Quality: ${(avgConfidence * 100).toFixed(1)}% | ` +
+            `Rate: ${(50000 / (Date.now() - lastUpdate)).toFixed(1)} Hz`,
+            avgConfidence > DATA_QUALITY_THRESHOLD ? 'success' : 'warning'
+          );
+        }
+      } catch (error) {
+        console.error("Error processing gaze data:", error);
+        logMessage("Error processing gaze data: " + error.message, 'error');
+      }
+    }
+
+    // Update startTracking function to initialize session
     function startTracking() {
       try {
         if (tracking) {
@@ -1180,6 +1361,12 @@
           logMessage(`❌ Too many calibration attempts. Please refresh the page and try again.`, 'error');
           return;
         }
+
+        // Initialize new session
+        dataStorage.initializeSession({
+          participantId: 'P' + Date.now(),
+          isPilot: false
+        });
 
         apiState = API_STATES.INITIALIZING;
         updateConnectionUI('connecting');
@@ -1254,6 +1441,50 @@
           code: ERROR_CODES.INITIALIZATION_ERROR,
           message: "Failed to start tracking: " + error.message
         });
+      }
+    }
+
+    // Update stopTracking function to handle session data
+    function stopTracking() {
+      try {
+        if (!tracking) return;
+        
+        GazeCloudAPI.StopEyeTracking();
+        tracking = false;
+        isCalibrating = false;
+        
+        // Save session data to IndexedDB
+        const session = dataStorage.getCurrentSession();
+        if (session && session.gazeData.length > 0) {
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
+          
+          const sessionData = {
+            timestamp: new Date().toISOString(),
+            duration: session.gazeData.length > 0 ? 
+              (session.gazeData[session.gazeData.length - 1].timestamp - session.gazeData[0].timestamp) / 1000 : 0,
+            dataPoints: session.gazeData.length,
+            averageConfidence: mean(session.gazeData.map(d => d.confidence || 0)),
+            data: session.gazeData,
+            config: session.config
+          };
+
+          store.add(sessionData).onsuccess = () => {
+            logMessage("Session data saved successfully", 'success');
+            loadSessions(); // Refresh sessions list
+          };
+        }
+        
+        // Clear current session
+        dataStorage.clearSession();
+        
+        // Update UI
+        updateUIState(false);
+        document.getElementById("liveData").innerHTML = "<em>Live gaze data will appear here...</em>";
+        logMessage("Eye tracking stopped.");
+      } catch (error) {
+        console.error("Error stopping tracking:", error);
+        logMessage("Error stopping tracking: " + error.message, 'error');
       }
     }
 
