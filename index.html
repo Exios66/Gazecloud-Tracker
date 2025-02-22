@@ -835,49 +835,127 @@
     let apiState = API_STATES.INITIALIZING;
     let calibrationStartTime = 0;
 
-    // Enhanced API verification
+    // Add debug mode and detailed error tracking
+    const DEBUG = true;
+    const ERROR_CODES = {
+      API_NOT_FOUND: 'API_NOT_FOUND',
+      API_LOAD_TIMEOUT: 'API_LOAD_TIMEOUT',
+      WEBSOCKET_ERROR: 'WEBSOCKET_ERROR',
+      CAMERA_DENIED: 'CAMERA_DENIED',
+      INITIALIZATION_ERROR: 'INITIALIZATION_ERROR',
+      CALIBRATION_ERROR: 'CALIBRATION_ERROR',
+      CONNECTION_ERROR: 'CONNECTION_ERROR'
+    };
+
+    // Enhanced error logging
+    function debugLog(message, data = null) {
+      if (!DEBUG) return;
+      const timestamp = new Date().toISOString();
+      console.log(`[${timestamp}] Debug:`, message);
+      if (data) console.log('Debug data:', data);
+      logMessage(`🔍 Debug: ${message}`, 'info');
+    }
+
+    // Enhanced API verification with detailed checks
     function verifyGazeCloudAPI() {
       return new Promise((resolve, reject) => {
-        if (typeof GazeCloudAPI === 'undefined') {
-          reject(new Error('GazeCloud API not found. Please check your internet connection.'));
+        debugLog('Starting GazeCloud API verification');
+        
+        // Check if script is loaded
+        const gazeScript = document.querySelector('script[src*="GazeCloudAPI.js"]');
+        if (!gazeScript) {
+          debugLog('GazeCloud API script tag not found');
+          reject({ code: ERROR_CODES.API_NOT_FOUND, message: 'GazeCloud API script not found in DOM' });
           return;
         }
 
-        // Verify required methods
-        const requiredMethods = ['StartEyeTracking', 'StopEyeTracking', 'OnResult'];
-        const missingMethods = requiredMethods.filter(method => typeof GazeCloudAPI[method] !== 'function');
+        // Verify API object
+        if (typeof GazeCloudAPI === 'undefined') {
+          debugLog('GazeCloud API object not defined');
+          reject({ code: ERROR_CODES.API_NOT_FOUND, message: 'GazeCloud API not found. Please check your internet connection.' });
+          return;
+        }
+
+        // Verify required methods with detailed logging
+        const requiredMethods = [
+          'StartEyeTracking',
+          'StopEyeTracking',
+          'OnResult',
+          'OnCalibrationComplete',
+          'OnCalibrationFail',
+          'OnCamDenied',
+          'OnError'
+        ];
+
+        const missingMethods = requiredMethods.filter(method => {
+          const exists = typeof GazeCloudAPI[method] === 'function';
+          debugLog(`Checking method ${method}: ${exists ? 'Found' : 'Missing'}`);
+          return !exists;
+        });
         
         if (missingMethods.length > 0) {
-          reject(new Error(`Missing required GazeCloud API methods: ${missingMethods.join(', ')}`));
+          reject({
+            code: ERROR_CODES.INITIALIZATION_ERROR,
+            message: `Missing required GazeCloud API methods: ${missingMethods.join(', ')}`
+          });
           return;
         }
 
+        // Verify WebSocket support
+        if (!window.WebSocket) {
+          reject({
+            code: ERROR_CODES.WEBSOCKET_ERROR,
+            message: 'WebSocket support not available in browser'
+          });
+          return;
+        }
+
+        debugLog('API verification completed successfully');
         resolve(true);
       });
     }
 
-    // Initialize data collection system with enhanced verification
+    // Enhanced initialization with better error handling
     function initializeDataCollection() {
+      debugLog('Starting data collection initialization');
+      
       try {
         dataCollectionReady = false;
         recordedData = [];
         lastDataPoint = null;
         apiState = API_STATES.INITIALIZING;
         
-        // Verify and configure GazeCloud API
         return verifyGazeCloudAPI()
           .then(() => {
-            // Reset all data structures first
+            debugLog('API verified, resetting data structures');
             resetDataStructures();
 
-            // Set required API configuration
-            GazeCloudAPI.APIKey = "GazeCloudAPI-Key";
-            GazeCloudAPI.CalibrationType = 5; // 5 point calibration
-            GazeCloudAPI.ShowVideo = true;
-            GazeCloudAPI.UseClickRecalibration = true;
+            debugLog('Configuring GazeCloud API settings');
+            // Set required API configuration with validation
+            if (!GazeCloudAPI.APIKey) {
+              GazeCloudAPI.APIKey = "GazeCloudAPI-Key";
+            }
+            
+            // Configure with validation
+            const config = {
+              CalibrationType: 5,
+              ShowVideo: true,
+              UseClickRecalibration: true,
+              Debug: DEBUG
+            };
 
-            // Enhanced callback setup with state management
+            Object.entries(config).forEach(([key, value]) => {
+              try {
+                GazeCloudAPI[key] = value;
+                debugLog(`Set ${key} = ${value}`);
+              } catch (error) {
+                debugLog(`Error setting ${key}`, error);
+              }
+            });
+
+            // Enhanced callback setup with debugging
             GazeCloudAPI.OnCalibrationComplete = function() {
+              debugLog('Calibration completed');
               apiState = API_STATES.RECORDING;
               isCalibrating = false;
               tracking = true;
@@ -888,27 +966,37 @@
             };
 
             GazeCloudAPI.OnCalibrationFail = function() {
+              debugLog('Calibration failed');
               apiState = API_STATES.ERROR;
               handleCalibrationFailure();
             };
 
             GazeCloudAPI.OnCamDenied = function() {
+              debugLog('Camera access denied');
               apiState = API_STATES.ERROR;
-              handleGazeError("❌ Camera access denied. Please check your camera permissions.");
+              handleGazeError({
+                code: ERROR_CODES.CAMERA_DENIED,
+                message: "❌ Camera access denied. Please check your camera permissions."
+              });
               updateUIState(false);
             };
 
             GazeCloudAPI.OnError = function(msg) {
+              debugLog('GazeCloud API error', msg);
               apiState = API_STATES.ERROR;
               if (msg.includes("connection lost") || msg.includes("WebSocket") || msg.includes("network")) {
                 handleConnectionLost();
               } else {
-                handleGazeError("GazeCloud API Error: " + msg);
+                handleGazeError({
+                  code: ERROR_CODES.API_LOAD_TIMEOUT,
+                  message: "GazeCloud API Error: " + msg
+                });
               }
               updateUIState(false);
             };
 
             GazeCloudAPI.OnConnect = function() {
+              debugLog('GazeCloud API connected');
               apiState = API_STATES.CONNECTED;
               logMessage("✅ GazeCloud API connected successfully", 'success');
               updateConnectionUI('connected');
@@ -921,8 +1009,8 @@
               }
             };
 
-            // Add calibration start detection
             GazeCloudAPI.OnCalibrationStart = function() {
+              debugLog('Calibration started');
               apiState = API_STATES.CALIBRATING;
               calibrationStartTime = Date.now();
               isCalibrating = true;
@@ -930,15 +1018,18 @@
               updateCalibrationUI('start');
             };
 
+            debugLog('Data collection system initialized');
             dataCollectionReady = true;
             logMessage("✅ Data collection system initialized successfully", 'success');
             return true;
           })
           .catch(error => {
+            debugLog('Initialization failed', error);
             logMessage(`❌ API Initialization failed: ${error.message}`, 'error');
             return false;
           });
       } catch (error) {
+        debugLog('Fatal initialization error', error);
         console.error("Error initializing data collection:", error);
         logMessage("❌ Failed to initialize data collection: " + error.message, 'error');
         return false;
