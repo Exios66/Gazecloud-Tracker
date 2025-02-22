@@ -171,6 +171,13 @@
 
         recordedData = []; // Reset recorded data
 
+        // Set up GazeCloud API configuration
+        GazeCloudAPI.StartEyeTracking();
+        GazeCloudAPI.OnCalibrationComplete = function() {
+          tracking = true;
+          logMessage("Calibration completed successfully. Starting gaze tracking...");
+        };
+
         // Callback: record gaze data, update live view and log details
         GazeCloudAPI.OnResult = function(GazeData) {
           try {
@@ -179,6 +186,8 @@
               return;
             }
 
+            if (!tracking) return; // Don't record data until calibration is complete
+
             recordedData.push(GazeData);
             if (recordedData.length > MAX_RECORDED_POINTS) {
               recordedData = recordedData.slice(-MAX_RECORDED_POINTS);
@@ -186,35 +195,41 @@
             }
 
             updateLiveData(GazeData);
-            logMessage("Gaze Data Received: " + JSON.stringify(GazeData));
+            // Only log every 100th data point to prevent log overflow
+            if (recordedData.length % 100 === 0) {
+              logMessage(`Recording gaze data... (${recordedData.length} points)`);
+            }
           } catch (error) {
             console.error("Error in OnResult callback:", error);
           }
         };
 
-        // Optional callbacks for calibration, errors, and camera denial
-        GazeCloudAPI.OnCalibrationComplete = function() {
-          logMessage("Gaze calibration complete.");
-        };
-        GazeCloudAPI.OnCamDenied = function() {
-          logMessage("Camera access was denied.");
+        // Handle calibration process
+        GazeCloudAPI.OnCalibrationFail = function() {
+          logMessage("Calibration failed. Please try again.");
           tracking = false;
         };
+
+        GazeCloudAPI.OnCamDenied = function() {
+          logMessage("Camera access was denied. Please enable camera access and try again.");
+          tracking = false;
+        };
+
         GazeCloudAPI.OnError = function(msg) {
           logMessage("GazeCloudAPI Error: " + msg);
           tracking = false;
         };
 
-        // Enable click recalibration if needed
+        // Enable click recalibration
         GazeCloudAPI.UseClickRecalibration = true;
 
-        // Begin eye tracking
-        GazeCloudAPI.StartEyeTracking();
-        tracking = true;
-        logMessage("Started eye tracking.");
+        // Start calibration process
+        logMessage("Starting calibration process...");
+        
       } catch (error) {
         console.error("Error in startTracking:", error);
         tracking = false;
+        logMessage("Failed to start tracking: " + error.message);
       }
     }
 
@@ -227,7 +242,7 @@
         }
         GazeCloudAPI.StopEyeTracking();
         tracking = false;
-        logMessage("Stopped eye tracking.");
+        logMessage("Stopped eye tracking. Recorded " + recordedData.length + " data points.");
       } catch (error) {
         console.error("Error in stopTracking:", error);
         tracking = false;
