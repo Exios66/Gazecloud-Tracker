@@ -3,13 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  <meta http-equiv="Permissions-Policy" content="interest-cohort=()">
   <title>Eye Tracking Recorder & Analysis Dashboard</title>
   <!-- GazeCloudAPI for live tracking -->
-  <script src="https://api.gazerecorder.com/GazeCloudAPI.js"></script>
+  <script src="https://api.gazerecorder.com/GazeCloudAPI.js" crossorigin="anonymous"></script>
   <!-- Chart.js for visualizations -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js" integrity="sha512-TK03gH1Gm//td4nG9lGFuIxFWBViON6gWlBe1K+DGdO0T48V1XJXDzcK0pAcn0OvykthLJf8pnwU4YHqCZMZw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <!-- PapaParse for CSV processing -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js" integrity="sha512-rKFvwjvE4liWPlFnvH4ZhRDfNZ9FOpdkD/BU5gAIA3VS3vOQrQ5BjKgbO3kxebKhHdHcNUHLqxQYSoxee9UwgA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <style>
     :root {
       /* Light theme variables */
@@ -917,10 +919,7 @@
 
         // Verify WebSocket support
         if (!window.WebSocket) {
-          reject({
-            code: ERROR_CODES.WEBSOCKET_ERROR,
-            message: 'WebSocket support not available in browser'
-          });
+          reject(new Error("❌ WebSocket support not available"));
           return;
         }
 
@@ -1873,6 +1872,59 @@
   </script>
 </head>
 <body>
-  <!-- Rest of the HTML content remains unchanged -->
+  <div class="container">
+    <div class="header">
+      <h1>Eye Tracking Recorder & Analysis Dashboard</h1>
+    </div>
+
+    <div class="controls">
+      <button onclick="startTracking()">Start Tracking</button>
+      <button onclick="stopTracking()" disabled>Stop Tracking</button>
+      <button onclick="exportCSV()" disabled>Export Data</button>
+      <button onclick="clearData()" disabled>Clear Data</button>
+    </div>
+
+    <div id="liveData">
+      <em>Live gaze data will appear here...</em>
+    </div>
+
+    <div id="debugLog"></div>
+
+    <div class="chart-container">
+      <canvas id="eyeMovementChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+      <canvas id="pupilDilationChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+      <canvas id="headMovementChart"></canvas>
+    </div>
+
+    <div class="sessions-container">
+      <h2>Recorded Sessions</h2>
+      <div id="sessionsList"></div>
+    </div>
+  </div>
+
+  <script>
+    // Initialize everything when the page loads
+    window.onload = function() {
+      try {
+        initDB()
+          .then(() => {
+            initializeTheme();
+            loadSessions();
+            logMessage("Application initialized successfully", 'success');
+          })
+          .catch(error => {
+            logMessage("Error initializing application: " + error.message, 'error');
+          });
+      } catch (error) {
+        console.error("Error in window.onload:", error);
+      }
+    };
+  </script>
 </body>
 </html>
