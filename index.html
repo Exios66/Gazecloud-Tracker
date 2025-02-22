@@ -376,6 +376,42 @@
       color: var(--text-primary);
       font-weight: 600;
     }
+
+    .sessions-container {
+      background: var(--bg-secondary);
+      padding: 20px;
+      border-radius: 12px;
+      margin: 20px 0;
+      box-shadow: 0 4px 12px var(--shadow-color);
+    }
+
+    .session-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px;
+      margin: 10px 0;
+      background: var(--bg-primary);
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+    }
+
+    .session-info {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .session-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .session-actions button {
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
   </style>
   <script>
     /********** LIVE EYE TRACKING SECTION **********/
@@ -392,6 +428,217 @@
     const CALIBRATION_TIMEOUT = 30000; // 30 seconds
     const MIN_DATA_INTERVAL = 16; // Minimum interval between data points (ms)
     const DATA_QUALITY_THRESHOLD = 0.6; // Minimum confidence threshold
+
+    // Add database handling code after the existing variables
+    const DB_NAME = 'EyeTrackingDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'sessions';
+    let db;
+
+    // Initialize database
+    function initDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        
+        request.onerror = (event) => {
+          logMessage("Database error: " + event.target.error, 'error');
+          reject(event.target.error);
+        };
+        
+        request.onsuccess = (event) => {
+          db = event.target.result;
+          logMessage("Database initialized successfully", 'success');
+          resolve(db);
+        };
+        
+        request.onupgradeneeded = (event) => {
+          const db = event.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+            store.createIndex('timestamp', 'timestamp', { unique: false });
+            store.createIndex('duration', 'duration', { unique: false });
+            logMessage("Database structure created", 'info');
+          }
+        };
+      });
+    }
+
+    // Save session data to database
+    function saveSessionToDB(sessionData) {
+      return new Promise((resolve, reject) => {
+        if (!db) {
+          reject(new Error("Database not initialized"));
+          return;
+        }
+
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        
+        const session = {
+          timestamp: new Date().toISOString(),
+          duration: sessionData.length > 0 ? 
+            (sessionData[sessionData.length - 1].timestamp - sessionData[0].timestamp) / 1000 : 0,
+          dataPoints: sessionData.length,
+          averageConfidence: mean(sessionData.map(d => d.confidence || 0)),
+          data: sessionData
+        };
+
+        const request = store.add(session);
+        
+        request.onsuccess = () => {
+          logMessage(`Session saved to database (${session.dataPoints} points)`, 'success');
+          resolve(request.result);
+        };
+        
+        request.onerror = () => {
+          logMessage("Error saving session to database", 'error');
+          reject(request.error);
+        };
+      });
+    }
+
+    // Load sessions from database
+    function loadSessions() {
+      return new Promise((resolve, reject) => {
+        if (!db) {
+          reject(new Error("Database not initialized"));
+          return;
+        }
+
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+
+        request.onsuccess = () => {
+          const sessions = request.result;
+          updateSessionsList(sessions);
+          resolve(sessions);
+        };
+
+        request.onerror = () => {
+          logMessage("Error loading sessions from database", 'error');
+          reject(request.error);
+        };
+      });
+    }
+
+    // Update sessions list in UI
+    function updateSessionsList(sessions) {
+      const sessionsList = document.getElementById('sessionsList');
+      if (!sessionsList) return;
+
+      sessionsList.innerHTML = '';
+      sessions.forEach(session => {
+        const sessionElement = document.createElement('div');
+        sessionElement.className = 'session-item';
+        sessionElement.innerHTML = `
+          <div class="session-info">
+            <strong>Session ${session.id}</strong>
+            <span>Date: ${new Date(session.timestamp).toLocaleString()}</span>
+            <span>Duration: ${session.duration.toFixed(1)}s</span>
+            <span>Points: ${session.dataPoints}</span>
+            <span>Confidence: ${(session.averageConfidence * 100).toFixed(1)}%</span>
+          </div>
+          <div class="session-actions">
+            <button onclick="loadSessionData(${session.id})">View</button>
+            <button onclick="exportSessionData(${session.id})">Export</button>
+            <button onclick="deleteSession(${session.id})">Delete</button>
+          </div>
+        `;
+        sessionsList.appendChild(sessionElement);
+      });
+    }
+
+    // Load specific session data
+    function loadSessionData(sessionId) {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(sessionId);
+
+      request.onsuccess = () => {
+        const session = request.result;
+        if (session) {
+          // Update charts with session data
+          createEyeMovementChart(session.data);
+          createPupilDilationChart(session.data);
+          createHeadMovementChart(session.data);
+          // Update stats
+          const stats = computeBasicStats(session.data);
+          updateBasicStats(stats);
+          logMessage(`Loaded session ${sessionId} data`, 'success');
+        }
+      };
+
+      request.onerror = () => {
+        logMessage(`Error loading session ${sessionId}`, 'error');
+      };
+    }
+
+    // Export specific session data
+    function exportSessionData(sessionId) {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(sessionId);
+
+      request.onsuccess = () => {
+        const session = request.result;
+        if (session) {
+          const csvContent = "data:text/csv;charset=utf-8,";
+          // Add headers
+          csvContent += "timestamp,x,y,state,confidence,pupilD,HeadX,HeadY,HeadZ,HeadYaw,HeadPitch,HeadRoll\n";
+          
+          // Add data rows
+          session.data.forEach(data => {
+            const row = [
+              data.timestamp,
+              data.x || '',
+              data.y || '',
+              data.state || '',
+              data.confidence || '',
+              data.pupilD || '',
+              data.HeadX || '',
+              data.HeadY || '',
+              data.HeadZ || '',
+              data.HeadYaw || '',
+              data.HeadPitch || '',
+              data.HeadRoll || ''
+            ].join(',');
+            csvContent += row + "\n";
+          });
+
+          const encodedUri = encodeURI(csvContent);
+          const link = document.createElement("a");
+          link.setAttribute("href", encodedUri);
+          link.setAttribute("download", `eye_tracking_session_${sessionId}_${new Date().toISOString()}.csv`);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          logMessage(`Exported session ${sessionId} data`, 'success');
+        }
+      };
+
+      request.onerror = () => {
+        logMessage(`Error exporting session ${sessionId}`, 'error');
+      };
+    }
+
+    // Delete specific session
+    function deleteSession(sessionId) {
+      if (!confirm('Are you sure you want to delete this session?')) return;
+
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.delete(sessionId);
+
+      request.onsuccess = () => {
+        logMessage(`Deleted session ${sessionId}`, 'success');
+        loadSessions(); // Refresh the sessions list
+      };
+
+      request.onerror = () => {
+        logMessage(`Error deleting session ${sessionId}`, 'error');
+      };
+    }
 
     // Update UI state
     function updateUIState(isRecording) {
@@ -943,7 +1190,6 @@
     // Enhanced stop tracking function
     function stopTracking() {
       try {
-        // Check if GazeCloud API is available before stopping
         if (typeof GazeCloudAPI !== 'undefined') {
           GazeCloudAPI.StopEyeTracking();
         }
@@ -952,17 +1198,24 @@
         isCalibrating = false;
         dataCollectionReady = false;
         
-        const message = recordedData.length > 0 
-          ? `Stopped eye tracking. Recorded ${recordedData.length} data points.`
-          : "Stopped eye tracking. No data was recorded.";
+        // Save session data if there are recorded points
+        if (recordedData.length > 0) {
+          saveSessionToDB(recordedData)
+            .then(() => {
+              logMessage(`Stopped tracking and saved session with ${recordedData.length} points.`, 'success');
+              loadSessions(); // Refresh the sessions list
+            })
+            .catch(error => {
+              logMessage("Error saving session: " + error.message, 'error');
+            });
+        } else {
+          logMessage("Stopped tracking. No data was recorded.", 'warning');
+        }
         
-        logMessage(message, recordedData.length > 0 ? 'success' : 'warning');
         updateUIState(false);
 
-        // Clear the video elements that GazeCloud API might have created
-        const videoElements = document.querySelectorAll('video');
-        videoElements.forEach(video => video.remove());
-
+        // Clear video elements
+        document.querySelectorAll('video').forEach(video => video.remove());
       } catch (error) {
         console.error("Error in stopTracking:", error);
         tracking = false;
@@ -1440,6 +1693,11 @@
     window.addEventListener('load', function() {
       toggleChart('eyeMovement');
       initializeTheme();
+      initDB()
+        .then(() => loadSessions())
+        .catch(error => {
+          logMessage("Error initializing database: " + error.message, 'error');
+        });
     });
 
     // Add window focus/blur handlers
@@ -1550,6 +1808,18 @@
       </div>
       <div id="debugLog">
         <em>Debug log messages will appear here...</em>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- SESSIONS LIST SECTION -->
+    <section id="sessionsListSection">
+      <h2>Recorded Sessions</h2>
+      <div class="sessions-container">
+        <div id="sessionsList">
+          <em>No sessions recorded yet...</em>
+        </div>
       </div>
     </section>
 
