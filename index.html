@@ -9,7 +9,7 @@
   <!-- GazeCloudAPI for live tracking -->
   <script src="https://api.gazerecorder.com/GazeCloudAPI.js" 
           crossorigin="anonymous" 
-          defer
+          async
           onerror="handleScriptError('GazeCloudAPI')"
           onload="handleScriptLoad('GazeCloudAPI')"></script>
   <!-- Fallback for GazeCloud API -->
@@ -20,6 +20,60 @@
         window.handleScriptLoad('GazeCloudAPI');
       }
     };
+
+    // Ensure GazeCloud API is loaded
+    function ensureGazeCloudLoaded() {
+      return new Promise((resolve, reject) => {
+        if (typeof GazeCloudAPI !== 'undefined') {
+          resolve();
+          return;
+        }
+
+        const maxAttempts = 3;
+        let attempts = 0;
+
+        function tryLoadScript() {
+          attempts++;
+          console.log(`Attempting to load GazeCloud API (attempt ${attempts}/${maxAttempts})`);
+
+          const script = document.createElement('script');
+          script.src = 'https://api.gazerecorder.com/GazeCloudAPI.js';
+          script.crossOrigin = 'anonymous';
+          script.async = true;
+
+          script.onload = () => {
+            if (typeof GazeCloudAPI !== 'undefined') {
+              resolve();
+            } else {
+              // Wait a bit for API to initialize
+              setTimeout(() => {
+                if (typeof GazeCloudAPI !== 'undefined') {
+                  resolve();
+                } else if (attempts < maxAttempts) {
+                  script.remove();
+                  tryLoadScript();
+                } else {
+                  reject(new Error('Failed to initialize GazeCloud API'));
+                }
+              }, 500);
+            }
+          };
+
+          script.onerror = () => {
+            if (attempts < maxAttempts) {
+              script.remove();
+              setTimeout(tryLoadScript, 1000);
+            } else {
+              reject(new Error('Failed to load GazeCloud API script'));
+            }
+          };
+
+          document.head.appendChild(script);
+        }
+
+        tryLoadScript();
+      });
+    }
 
     // Ensure GazeCloud API is loaded
     function ensureGazeCloudLoaded() {
@@ -1087,45 +1141,31 @@
 
     // Update waitForGazeCloud function
     function waitForGazeCloud() {
-      return new Promise((resolve, reject) => {
-        const maxWaitTime = 20000; // 20 seconds
-        const checkInterval = 100; // Reduced to 100ms for faster checking
-        const startTime = Date.now();
-        let retryCount = 0;
-        const maxRetries = 3;
-
-        async function checkAPI() {
+      return new Promise(async (resolve, reject) => {
+        try {
+          // First, try to use the existing API instance
           if (typeof GazeCloudAPI !== 'undefined') {
-            try {
-              await initializeGazeCloudAPI();
-              resolve();
-              return;
-            } catch (error) {
-              console.error('Failed to initialize GazeCloud API:', error);
-            }
-          }
-
-          if (Date.now() - startTime > maxWaitTime) {
-            reject(new Error('Timeout waiting for GazeCloud API'));
+            await initializeGazeCloudAPI();
+            resolve();
             return;
           }
 
-          if (retryCount < maxRetries) {
-            retryCount++;
-            logMessage(`Attempting to load GazeCloud API (attempt ${retryCount}/${maxRetries})`, 'info');
-            try {
-              await ensureGazeCloudLoaded();
-              // Wait a bit for the API to initialize
-              setTimeout(checkAPI, 500);
-            } catch (error) {
-              setTimeout(checkAPI, checkInterval);
-            }
-          } else {
-            reject(new Error('Failed to load GazeCloud API after multiple attempts'));
+          // If not available, try to load it
+          await ensureGazeCloudLoaded();
+          
+          // Wait a bit for the API to be fully initialized
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          if (typeof GazeCloudAPI === 'undefined') {
+            throw new Error('GazeCloud API not available after loading');
           }
-        }
 
-        checkAPI();
+          await initializeGazeCloudAPI();
+          resolve();
+        } catch (error) {
+          console.error('Error in waitForGazeCloud:', error);
+          reject(error);
+        }
       });
     }
 
@@ -1215,6 +1255,11 @@
           await waitForGazeCloud();
           logMessage("✅ GazeCloud API loaded and initialized", 'success');
           
+          // Double check API is available
+          if (typeof GazeCloudAPI === 'undefined' || !GazeCloudAPI.StartEyeTracking) {
+            throw new Error("GazeCloud API not properly initialized");
+          }
+
           // Start eye tracking
           GazeCloudAPI.StartEyeTracking();
           calibrationAttempts++;
