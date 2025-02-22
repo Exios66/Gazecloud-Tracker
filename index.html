@@ -481,6 +481,48 @@
       }
     }
 
+    // Theme management
+    function initializeTheme() {
+      const currentTheme = localStorage.getItem('theme') || 'light';
+      document.documentElement.setAttribute('data-theme', currentTheme);
+      
+      const themeToggle = document.createElement('button');
+      themeToggle.className = 'theme-toggle';
+      themeToggle.innerHTML = currentTheme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode';
+      themeToggle.onclick = toggleTheme;
+      
+      document.querySelector('.header').appendChild(themeToggle);
+    }
+    
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      
+      document.documentElement.setAttribute('data-theme', newTheme);
+      localStorage.setItem('theme', newTheme);
+      
+      const themeToggle = document.querySelector('.theme-toggle');
+      themeToggle.innerHTML = newTheme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode';
+      
+      // Update chart themes if they exist
+      updateChartThemes();
+    }
+    
+    function updateChartThemes() {
+      const charts = [window.eyeMovementChart, window.pupilDilationChart, window.headMovementChart];
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      
+      charts.forEach(chart => {
+        if (chart && chart.options) {
+          chart.options.scales.x.grid.color = isDark ? '#404040' : '#dddddd';
+          chart.options.scales.y.grid.color = isDark ? '#404040' : '#dddddd';
+          chart.options.scales.x.ticks.color = isDark ? '#cccccc' : '#666666';
+          chart.options.scales.y.ticks.color = isDark ? '#cccccc' : '#666666';
+          chart.update();
+        }
+      });
+    }
+
     // Initialize data collection system
     function initializeDataCollection() {
       try {
@@ -488,6 +530,33 @@
         recordedData = [];
         lastDataPoint = null;
         
+        // Configure GazeCloud API settings
+        GazeCloudAPI.APIKey = "GazeCloudAPI-Key"; // Replace with your API key if needed
+        GazeCloudAPI.CalibrationType = 'default';
+        GazeCloudAPI.ShowVideo = true;
+        GazeCloudAPI.TrackerReady = function() {
+          logMessage("Eye tracker is ready", 'success');
+        };
+        
+        GazeCloudAPI.OnCalibrationComplete = function() {
+          isCalibrating = false;
+          tracking = true;
+          calibrationAttempts = 0;
+          startRecording();
+        };
+        
+        GazeCloudAPI.OnCalibrationFail = function() {
+          handleCalibrationFailure();
+        };
+        
+        GazeCloudAPI.OnError = function(msg) {
+          handleGazeError(msg);
+        };
+        
+        GazeCloudAPI.OnResult = function(GazeData) {
+          handleGazeData(GazeData);
+        };
+
         // Show initialization status
         document.getElementById("liveData").innerHTML = `
           <div class="calibration-message">
@@ -508,33 +577,11 @@
             </div>
           </div>
         `;
-        
-        // Set up data collection configuration
-        const config = {
-          sampleRate: 1000 / UPDATE_INTERVAL,
-          confidenceThreshold: DATA_QUALITY_THRESHOLD,
-          enableHeadTracking: true,
-          enablePupilTracking: true
-        };
-
-        logMessage("Initializing data collection system...", 'info');
-        
-        // Verify GazeCloudAPI availability
-        if (typeof GazeCloudAPI === 'undefined') {
-          throw new Error("GazeCloudAPI not loaded");
-        }
 
         // Initialize data structures
         resetDataStructures();
         
         dataCollectionReady = true;
-        // Start calibration automatically after initialization
-        setTimeout(() => {
-          if (dataCollectionReady) {
-            startCalibration();
-          }
-        }, 1000);
-        
         logMessage("Data collection system initialized successfully", 'success');
         return true;
       } catch (error) {
@@ -544,137 +591,76 @@
       }
     }
 
-    // Separate calibration function
-    function startCalibration() {
+    // Handle gaze data processing
+    function handleGazeData(GazeData) {
       try {
-        if (isCalibrating) return;
+        if (!tracking || !dataCollectionReady) return;
+
+        const processedData = processGazeData(GazeData);
+        if (!processedData) return;
+
+        recordedData.push(processedData);
+        if (recordedData.length > MAX_RECORDED_POINTS) {
+          recordedData = recordedData.slice(-MAX_RECORDED_POINTS);
+          logMessage("Trimming recorded data to prevent memory issues", 'warning');
+        }
+
+        updateLiveData(processedData);
         
-        // Show calibration instructions
-        document.getElementById("liveData").innerHTML = `
-          <div class="calibration-message">
-            <h3>Starting Calibration</h3>
-            <div class="calibration-progress">
-              <div class="progress-bar">
-                <div class="progress-indicator"></div>
-              </div>
-            </div>
-            <p>Please follow these steps:</p>
-            <ol>
-              <li class="active">Ensure your face is well-lit and centered</li>
-              <li>Follow the dot with your eyes as it moves</li>
-              <li>Keep your head still during calibration</li>
-              <li>Maintain focus on the calibration points</li>
-            </ol>
-          </div>
-        `;
-
-        isCalibrating = true;
-        calibrationAttempts++;
-
-        // Configure calibration callbacks
-        GazeCloudAPI.OnCalibrationComplete = function() {
-          isCalibrating = false;
-          tracking = true;
-          calibrationAttempts = 0;
-          startRecording();
-        };
-
-        // Start the calibration
-        GazeCloudAPI.StartEyeTracking();
-        logMessage("Calibration process started...", 'info');
+        if (recordedData.length % 50 === 0) {
+          const avgConfidence = mean(recordedData.slice(-50).map(d => d.confidence || 0));
+          logMessage(
+            `Recording active: ${recordedData.length} points collected | ` +
+            `Recent Quality: ${(avgConfidence * 100).toFixed(1)}% | ` +
+            `Rate: ${(50000 / (Date.now() - lastUpdate)).toFixed(1)} Hz`,
+            avgConfidence > DATA_QUALITY_THRESHOLD ? 'success' : 'warning'
+          );
+        }
       } catch (error) {
-        console.error("Error in startCalibration:", error);
-        logMessage("Calibration failed to start: " + error.message, 'error');
+        console.error("Error processing gaze data:", error);
+        logMessage("Error processing gaze data: " + error.message, 'error');
       }
     }
 
-    // Separate recording function
-    function startRecording() {
-      try {
-        const startTime = Date.now();
-        logMessage("Calibration successful - Starting data recording...", 'success');
-        
-        // Initialize the live data display
-        document.getElementById("liveData").innerHTML = `
-          <div class="live-data-grid">
-            <div class="data-section">
-              <strong>Recording Status</strong><br>
-              <span class="data-value recording">Active</span><br>
-              <span class="data-value">Started: ${new Date().toLocaleTimeString()}</span>
-            </div>
-            <div class="data-section">
-              <strong>Data Collection</strong><br>
-              <span class="data-value">Points: 0</span><br>
-              <span class="data-value">Quality: Measuring...</span>
-            </div>
-          </div>
-        `;
-        
-        updateUIState(true);
-      } catch (error) {
-        console.error("Error in startRecording:", error);
-        logMessage("Failed to start recording: " + error.message, 'error');
-      }
+    // Handle calibration failure
+    function handleCalibrationFailure() {
+      isCalibrating = false;
+      tracking = false;
+      dataCollectionReady = false;
+      
+      document.getElementById("liveData").innerHTML = `
+        <div class="calibration-message error">
+          <h3>Calibration Failed</h3>
+          <p>Please ensure:</p>
+          <ul>
+            <li>Your face is well-lit and visible</li>
+            <li>You are in a stable position</li>
+            <li>Your eyes are clearly visible</li>
+            <li>You are looking at the calibration points</li>
+          </ul>
+          <p>Click "Start Tracking" to try again.</p>
+        </div>
+      `;
+      
+      logMessage(`Calibration failed (Attempt ${calibrationAttempts} of ${MAX_CALIBRATION_ATTEMPTS})`, 'error');
+      updateUIState(false);
     }
 
-    // Reset all data structures
-    function resetDataStructures() {
-      try {
-        // Safely destroy existing charts
-        function safeDestroyChart(chartInstance) {
-          try {
-            if (chartInstance && typeof chartInstance.destroy === 'function') {
-              chartInstance.destroy();
-            }
-          } catch (error) {
-            console.error("Error destroying chart:", error);
-          }
-        }
-
-        // Clear existing charts with safety checks
-        if (window.eyeMovementChart) {
-          safeDestroyChart(window.eyeMovementChart);
-          window.eyeMovementChart = null;
-        }
-        if (window.pupilDilationChart) {
-          safeDestroyChart(window.pupilDilationChart);
-          window.pupilDilationChart = null;
-        }
-        if (window.headMovementChart) {
-          safeDestroyChart(window.headMovementChart);
-          window.headMovementChart = null;
-        }
-
-        // Clear chart canvases
-        function clearCanvas(canvasId) {
-          try {
-            const canvas = document.getElementById(canvasId);
-            if (canvas) {
-              const ctx = canvas.getContext('2d');
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-            }
-          } catch (error) {
-            console.error(`Error clearing canvas ${canvasId}:`, error);
-          }
-        }
-
-        clearCanvas('eyeMovementChart');
-        clearCanvas('pupilDilationChart');
-        clearCanvas('headMovementChart');
-        
-        // Reset data arrays
-        recordedData = [];
-        lastDataPoint = null;
-        
-        // Reset UI elements
-        document.getElementById("liveData").innerHTML = "<em>Live gaze data will appear here...</em>";
-        updateUIState(false);
-        
-        logMessage("Data structures reset successfully", 'info');
-      } catch (error) {
-        console.error("Error resetting data structures:", error);
-        logMessage("Failed to reset data structures: " + error.message, 'error');
-      }
+    // Handle GazeCloud API errors
+    function handleGazeError(msg) {
+      tracking = false;
+      isCalibrating = false;
+      dataCollectionReady = false;
+      logMessage("GazeCloud API Error: " + msg, 'error');
+      updateUIState(false);
+      
+      document.getElementById("liveData").innerHTML = `
+        <div class="calibration-message error">
+          <h3>Eye Tracking Error</h3>
+          <p>${msg}</p>
+          <p>Please try again or check your camera settings.</p>
+        </div>
+      `;
     }
 
     // Validate and process incoming gaze data
@@ -719,6 +705,31 @@
       }
     }
 
+    // Check if GazeCloud API is loaded
+    function checkGazeCloudAPI() {
+      return new Promise((resolve, reject) => {
+        let attempts = 0;
+        const maxAttempts = 10;
+        
+        function check() {
+          if (typeof GazeCloudAPI !== 'undefined') {
+            resolve(true);
+            return;
+          }
+          
+          attempts++;
+          if (attempts >= maxAttempts) {
+            reject(new Error("GazeCloud API failed to load"));
+            return;
+          }
+          
+          setTimeout(check, 500);
+        }
+        
+        check();
+      });
+    }
+
     // Start eye tracking with enhanced initialization
     function startTracking() {
       try {
@@ -734,8 +745,21 @@
           return;
         }
 
-        // Start the initialization process
-        initializeDataCollection();
+        // Check GazeCloud API and start initialization
+        checkGazeCloudAPI()
+          .then(() => {
+            initializeDataCollection();
+            // Start calibration after successful initialization
+            setTimeout(() => {
+              if (dataCollectionReady) {
+                GazeCloudAPI.StartEyeTracking();
+              }
+            }, 1000);
+          })
+          .catch((error) => {
+            logMessage("Failed to initialize eye tracking: " + error.message, 'error');
+            handleGazeError("API not available. Please refresh the page and try again.");
+          });
 
       } catch (error) {
         console.error("Error in startTracking:", error);
@@ -750,7 +774,11 @@
     // Enhanced stop tracking function
     function stopTracking() {
       try {
-        GazeCloudAPI.StopEyeTracking();
+        // Check if GazeCloud API is available before stopping
+        if (typeof GazeCloudAPI !== 'undefined') {
+          GazeCloudAPI.StopEyeTracking();
+        }
+        
         tracking = false;
         isCalibrating = false;
         dataCollectionReady = false;
@@ -761,6 +789,11 @@
         
         logMessage(message, recordedData.length > 0 ? 'success' : 'warning');
         updateUIState(false);
+
+        // Clear the video elements that GazeCloud API might have created
+        const videoElements = document.querySelectorAll('video');
+        videoElements.forEach(video => video.remove());
+
       } catch (error) {
         console.error("Error in stopTracking:", error);
         tracking = false;
@@ -1234,9 +1267,10 @@
       document.getElementById(chartId + 'Toggle').classList.add('active');
     }
     
-    // Initialize with eye movement chart visible
+    // Initialize with eye movement chart visible and theme
     window.addEventListener('load', function() {
       toggleChart('eyeMovement');
+      initializeTheme();
     });
 
     // Add window focus/blur handlers
