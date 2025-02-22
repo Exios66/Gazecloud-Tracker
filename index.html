@@ -615,9 +615,19 @@
           updateUIState(false);
         };
 
+        // Enhanced error handling for connection issues
         GazeCloudAPI.OnError = function(msg) {
-          handleGazeError("GazeCloud API Error: " + msg);
+          if (msg.includes("connection lost") || msg.includes("WebSocket") || msg.includes("network")) {
+            handleConnectionLost();
+          } else {
+            handleGazeError("GazeCloud API Error: " + msg);
+          }
           updateUIState(false);
+        };
+
+        // Add connection status callbacks
+        GazeCloudAPI.OnDisconnect = function() {
+          handleConnectionLost();
         };
 
         GazeCloudAPI.OnResult = function(GazeData) {
@@ -894,16 +904,23 @@
       return new Promise((resolve, reject) => {
         let attempts = 0;
         const maxAttempts = 10;
-        const checkInterval = 500; // Check every 500ms for faster response
+        const checkInterval = 500; // Check every 500ms
         
         function check() {
           try {
             if (typeof GazeCloudAPI !== 'undefined' && 
                 GazeCloudAPI.StartEyeTracking && 
                 typeof GazeCloudAPI.StartEyeTracking === 'function') {
-              logMessage("GazeCloud API loaded successfully", 'success');
-              resolve(true);
-              return;
+              
+              // Additional connection validation
+              if (window.WebSocket) {
+                logMessage("GazeCloud API loaded successfully", 'success');
+                resolve(true);
+                return;
+              } else {
+                reject(new Error("WebSocket support not available"));
+                return;
+              }
             }
             
             attempts++;
@@ -1452,6 +1469,64 @@
         return message;
       }
     });
+
+    // Add connection handling variables
+    let connectionAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 3;
+    const RECONNECT_DELAY = 2000; // 2 seconds
+
+    // Handle connection loss
+    function handleConnectionLost() {
+      tracking = false;
+      isCalibrating = false;
+      dataCollectionReady = false;
+
+      logMessage("GazeCloud server connection lost!", 'error');
+      
+      // Show connection loss message
+      document.getElementById("liveData").innerHTML = `
+        <div class="calibration-message error">
+          <h3>Connection Lost</h3>
+          <p>Lost connection to the GazeCloud server. ${connectionAttempts < MAX_RECONNECT_ATTEMPTS ? 'Attempting to reconnect...' : 'Please refresh the page to try again.'}</p>
+          <div class="initialization-steps">
+            <div class="step">
+              <span class="step-indicator">🔄</span>
+              <span class="step-text">Reconnection attempt ${connectionAttempts + 1}/${MAX_RECONNECT_ATTEMPTS}</span>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Attempt to reconnect if within retry limit
+      if (connectionAttempts < MAX_RECONNECT_ATTEMPTS) {
+        connectionAttempts++;
+        setTimeout(() => {
+          logMessage(`Attempting to reconnect (${connectionAttempts}/${MAX_RECONNECT_ATTEMPTS})...`, 'info');
+          try {
+            // Clean up existing connection
+            if (typeof GazeCloudAPI !== 'undefined' && GazeCloudAPI.StopEyeTracking) {
+              GazeCloudAPI.StopEyeTracking();
+            }
+            // Remove any existing video elements
+            document.querySelectorAll('video').forEach(video => video.remove());
+            // Attempt to reinitialize
+            startTracking();
+          } catch (error) {
+            console.error("Error during reconnection attempt:", error);
+            logMessage("Failed to reconnect: " + error.message, 'error');
+          }
+        }, RECONNECT_DELAY);
+      } else {
+        logMessage("Maximum reconnection attempts reached. Please refresh the page.", 'error');
+        document.getElementById("liveData").innerHTML = `
+          <div class="calibration-message error">
+            <h3>Connection Failed</h3>
+            <p>Unable to reconnect to the GazeCloud server after multiple attempts.</p>
+            <p>Please check your internet connection and refresh the page to try again.</p>
+          </div>
+        `;
+      }
+    }
   </script>
 </head>
 <body>
