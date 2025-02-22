@@ -68,6 +68,51 @@
       border-radius: 6px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.08);
     }
+    .chart-controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      justify-content: center;
+    }
+    
+    .chart-toggle {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      opacity: 0.7;
+    }
+    
+    .chart-toggle.active {
+      opacity: 1;
+      transform: scale(1.05);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    
+    .chart-toggle.red { background-color: rgba(255, 99, 132, 0.2); color: rgb(255, 99, 132); }
+    .chart-toggle.green { background-color: rgba(75, 192, 192, 0.2); color: rgb(75, 192, 192); }
+    .chart-toggle.blue { background-color: rgba(54, 162, 235, 0.2); color: rgb(54, 162, 235); }
+    
+    .chart-toggle.red.active { background-color: rgba(255, 99, 132, 0.4); }
+    .chart-toggle.green.active { background-color: rgba(75, 192, 192, 0.4); }
+    .chart-toggle.blue.active { background-color: rgba(54, 162, 235, 0.4); }
+    
+    .chart-container {
+      display: none;
+      transition: opacity 0.3s ease;
+    }
+    
+    .chart-container.active {
+      display: block;
+      animation: fadeIn 0.3s ease;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
   </style>
   <script>
     /********** LIVE EYE TRACKING SECTION **********/
@@ -601,6 +646,28 @@
       logMessage(`Uncaught error: ${message}`);
       return false;
     };
+
+    // Add chart toggle functionality
+    function toggleChart(chartId) {
+      // Hide all charts
+      document.querySelectorAll('.chart-container').forEach(container => {
+        container.classList.remove('active');
+      });
+      
+      // Deactivate all toggle buttons
+      document.querySelectorAll('.chart-toggle').forEach(button => {
+        button.classList.remove('active');
+      });
+      
+      // Show selected chart and activate its toggle
+      document.getElementById(chartId + 'Container').classList.add('active');
+      document.getElementById(chartId + 'Toggle').classList.add('active');
+    }
+    
+    // Initialize with eye movement chart visible
+    window.addEventListener('load', function() {
+      toggleChart('eyeMovement');
+    });
   </script>
 </head>
 <body>
@@ -635,15 +702,20 @@
         <button type="button" onclick="processFile()">Analyze Data</button>
       </div>
       <div class="stats-container" id="basicStats"></div>
-      <div class="chart-container">
+      <div class="chart-controls">
+        <button type="button" id="eyeMovementToggle" class="chart-toggle red active" onclick="toggleChart('eyeMovement')">Eye Movement</button>
+        <button type="button" id="pupilDilationToggle" class="chart-toggle green" onclick="toggleChart('pupilDilation')">Pupil Dilation</button>
+        <button type="button" id="headMovementToggle" class="chart-toggle blue" onclick="toggleChart('headMovement')">Head Movement</button>
+      </div>
+      <div id="eyeMovementContainer" class="chart-container active">
         <h3>Eye Movement Trajectory</h3>
         <canvas id="eyeMovementChart"></canvas>
       </div>
-      <div class="chart-container">
+      <div id="pupilDilationContainer" class="chart-container">
         <h3>Pupil Dilation Over Time</h3>
         <canvas id="pupilDilationChart"></canvas>
       </div>
-      <div class="chart-container">
+      <div id="headMovementContainer" class="chart-container">
         <h3>Head Displacement Over Time</h3>
         <canvas id="headMovementChart"></canvas>
       </div>
