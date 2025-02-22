@@ -930,16 +930,33 @@
         GazeCloudAPI.OnCalibrationComplete = function() {
           console.log('Calibration completed successfully');
           logMessage("✅ Calibration completed!", 'success');
+          isCalibrating = false;
           tracking = true;
+          dataCollectionReady = true;
           calibrationAttempts = 0;
+          calibrationStartTime = 0;
           updateUIState(true);
         };
 
         GazeCloudAPI.OnCalibrationFail = function() {
           console.error('Calibration failed');
           logMessage("❌ Calibration failed. Please try again.", 'error');
+          isCalibrating = false;
           tracking = false;
+          dataCollectionReady = false;
           calibrationAttempts++;
+          calibrationStartTime = 0;
+          updateUIState(false);
+          handleCalibrationFailure();
+        };
+
+        GazeCloudAPI.OnCalibrationStart = function() {
+          console.log('Calibration started');
+          logMessage("🎯 Starting calibration...", 'info');
+          isCalibrating = true;
+          tracking = false;
+          dataCollectionReady = false;
+          calibrationStartTime = Date.now();
           updateUIState(false);
         };
 
@@ -992,20 +1009,34 @@
               timestamp: Date.now(),
               x: gazeData.docX,
               y: gazeData.docY,
-              pupilX: gazeData.eyeX,
-              pupilY: gazeData.eyeY,
-              confidence: gazeData.confidence
+              state: gazeData.state,
+              confidence: gazeData.confidence,
+              pupilD: gazeData.pupilD,
+              HeadX: gazeData.HeadX,
+              HeadY: gazeData.HeadY,
+              HeadZ: gazeData.HeadZ,
+              HeadYaw: gazeData.HeadYaw,
+              HeadPitch: gazeData.HeadPitch,
+              HeadRoll: gazeData.HeadRoll
             };
             
             // Update live display
             updateLiveData(processedData);
             
-            // Store data point
-            if (recordedData) {
-              recordedData.push(processedData);
+            // Store data point in both arrays
+            recordedData.push(processedData);
+            if (dataStorage.currentSession) {
+              dataStorage.currentSession.gazeData.push(processedData);
+            }
+
+            // Check data collection limits
+            if (recordedData.length > MAX_RECORDED_POINTS) {
+              recordedData = recordedData.slice(-MAX_RECORDED_POINTS);
+              logMessage("Trimming recorded data to prevent memory issues", 'warning');
             }
           } catch (error) {
             console.error('Error processing gaze data:', error);
+            logMessage("Error processing gaze data: " + error.message, 'error');
           }
         };
 
@@ -1203,15 +1234,20 @@
     // Update stopTracking function to handle session data
     function stopTracking() {
       try {
-        if (!tracking) return;
+        if (!tracking && !isCalibrating) return;
         
         GazeCloudAPI.StopEyeTracking();
         tracking = false;
         isCalibrating = false;
+        dataCollectionReady = false;
+        calibrationStartTime = 0;
         
-        // Save session data to IndexedDB
+        // Clean up video elements
+        document.querySelectorAll('video').forEach(video => video.remove());
+        
+        // Save session data to IndexedDB if we have data
         const session = dataStorage.getCurrentSession();
-        if (session && session.gazeData.length > 0) {
+        if (session && session.gazeData && session.gazeData.length > 0) {
           const transaction = db.transaction([STORE_NAME], 'readwrite');
           const store = transaction.objectStore(STORE_NAME);
           
@@ -1231,13 +1267,16 @@
           };
         }
         
+        // Reset data structures
+        resetDataStructures();
+        
         // Clear current session
         dataStorage.clearSession();
         
         // Update UI
         updateUIState(false);
         document.getElementById("liveData").innerHTML = "<em>Live gaze data will appear here...</em>";
-        logMessage("Eye tracking stopped.");
+        logMessage("Eye tracking stopped.", 'success');
       } catch (error) {
         console.error("Error stopping tracking:", error);
         logMessage("Error stopping tracking: " + error.message, 'error');
@@ -1523,6 +1562,19 @@
       } catch (error) {
         console.error("Error in clearData:", error);
       }
+    }
+
+    // Statistical utility functions
+    function mean(arr) {
+      if (!arr || arr.length === 0) return 0;
+      return arr.reduce((a, b) => a + b, 0) / arr.length;
+    }
+
+    function standardDeviation(arr) {
+      if (!arr || arr.length === 0) return 0;
+      const avg = mean(arr);
+      const squareDiffs = arr.map(value => Math.pow(value - avg, 2));
+      return Math.sqrt(mean(squareDiffs));
     }
 
     /********** CSV ANALYSIS DASHBOARD SECTION **********/
