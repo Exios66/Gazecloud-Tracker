@@ -1210,23 +1210,104 @@
             return;
           }
 
-          // Configure GazeCloud API settings
-          GazeCloudAPI.APIKey = ''; // Empty API key for public access
-          GazeCloudAPI.CalibrationType = 5;
-          GazeCloudAPI.ShowVideo = true;
+          // Configure GazeCloud API settings for public access
+          // Note: Not setting APIKey will use the default public "AppKeyDemo"
           GazeCloudAPI.UseClickRecalibration = true;
-          GazeCloudAPI.Debug = true;
-          GazeCloudAPI.CrossOrigin = true;
+          GazeCloudAPI.ShowVideo = true;
           GazeCloudAPI.Protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-          // Setup callbacks
-          if (setupGazeCloudCallbacks()) {
-            gazeCloudScriptLoaded = true;
-            logMessage("✅ GazeCloud API initialized successfully", 'success');
-            resolve();
-          } else {
-            reject(new Error("Failed to setup GazeCloud callbacks"));
-          }
+          // Setup callbacks in the order specified by the API
+          GazeCloudAPI.OnResult = function(gazeData) {
+            if (!tracking || !dataCollectionReady) return;
+            
+            try {
+              // Process and store gaze data
+              const processedData = {
+                timestamp: Date.now(),
+                x: gazeData.docX,
+                y: gazeData.docY,
+                state: gazeData.state,
+                confidence: gazeData.confidence,
+                pupilD: gazeData.pupilD,
+                HeadX: gazeData.HeadX,
+                HeadY: gazeData.HeadY,
+                HeadZ: gazeData.HeadZ,
+                HeadYaw: gazeData.HeadYaw,
+                HeadPitch: gazeData.HeadPitch,
+                HeadRoll: gazeData.HeadRoll
+              };
+              
+              // Update live display
+              updateLiveData(processedData);
+              
+              // Store data point
+              recordedData.push(processedData);
+              if (dataStorage.currentSession) {
+                dataStorage.currentSession.gazeData.push(processedData);
+              }
+
+              // Check data collection limits
+              if (recordedData.length > MAX_RECORDED_POINTS) {
+                recordedData = recordedData.slice(-MAX_RECORDED_POINTS);
+                logMessage("Trimming recorded data to prevent memory issues", 'warning');
+              }
+
+              // Update analytics dashboard every 10 data points
+              if (recordedData.length % 10 === 0) {
+                updateCharts();
+              }
+            } catch (error) {
+              console.error('Error processing gaze data:', error);
+              logMessage("Error processing gaze data: " + error.message, 'error');
+            }
+          };
+
+          GazeCloudAPI.OnCalibrationComplete = function() {
+            logMessage("✅ Calibration completed successfully", 'success');
+            isCalibrating = false;
+            tracking = true;
+            dataCollectionReady = true;
+            calibrationAttempts = 0;
+            calibrationStartTime = 0;
+            updateUIState(true);
+          };
+
+          GazeCloudAPI.OnCalibrationFail = function() {
+            logMessage("❌ Calibration failed", 'error');
+            isCalibrating = false;
+            tracking = false;
+            dataCollectionReady = false;
+            calibrationAttempts++;
+            calibrationStartTime = 0;
+            updateUIState(false);
+            handleCalibrationFailure();
+          };
+
+          GazeCloudAPI.OnStopGazeFlow = function() {
+            logMessage("Eye tracking stopped", 'info');
+            tracking = false;
+            isCalibrating = false;
+            dataCollectionReady = false;
+            updateUIState(false);
+          };
+
+          GazeCloudAPI.OnCamDenied = function() {
+            handleGazeError({
+              code: ERROR_CODES.CAMERA_DENIED,
+              message: "Camera access was denied. Please check your camera permissions."
+            });
+          };
+
+          GazeCloudAPI.OnError = function(error) {
+            handleGazeError({
+              code: ERROR_CODES.INITIALIZATION_ERROR,
+              message: error?.message || "Unknown error occurred",
+              details: error
+            });
+          };
+
+          logMessage("✅ GazeCloud API initialized successfully", 'success');
+          resolve();
         } catch (error) {
           reject(new Error('Failed to initialize GazeCloud API: ' + error.message));
         }
