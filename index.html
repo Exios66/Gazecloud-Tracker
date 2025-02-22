@@ -1130,6 +1130,27 @@
       });
     }
 
+    // Add data storage management
+    const dataStorage = {
+      currentSession: null,
+      
+      initializeSession(config) {
+        this.currentSession = {
+          config,
+          gazeData: [],
+          startTime: Date.now()
+        };
+      },
+      
+      getCurrentSession() {
+        return this.currentSession;
+      },
+      
+      clearSession() {
+        this.currentSession = null;
+      }
+    };
+
     // Update startTracking function
     async function startTracking() {
       try {
