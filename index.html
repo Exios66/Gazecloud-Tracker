@@ -1374,65 +1374,18 @@
         // Clear any existing video elements
         document.querySelectorAll('video').forEach(video => video.remove());
 
-        // Initialize and start tracking with proper sequence
-        checkGazeCloudAPI()
-          .then(() => {
-            debugLog('API check passed, initializing data collection');
-            return initializeDataCollection();
-          })
-          .then((initialized) => {
-            if (!initialized) {
-              throw new Error("Failed to initialize data collection");
-            }
-            debugLog('Data collection initialized, preparing to start tracking');
-            apiState = API_STATES.CONNECTING;
-            
-            // Ensure the container is ready
-            const container = document.getElementById('liveData');
-            if (!container) {
-              throw new Error("Container for eye tracking not found");
-            }
-            container.innerHTML = `
-              <div class="calibration-message">
-                <h3>🎯 Preparing Eye Tracking</h3>
-                <div class="initialization-steps">
-                  <div class="step">
-                    <span class="step-indicator">⚙️</span>
-                    <span class="step-text">Initializing camera...</span>
-                  </div>
-                </div>
-                <div class="progress-bar">
-                  <div class="progress-indicator"></div>
-                </div>
-              </div>
-            `;
+        // Initialize GazeCloud API and start tracking
+        if (!initializeGazeTracking()) {
+          throw new Error("Failed to initialize gaze tracking");
+        }
 
-            // Start eye tracking with a slight delay
-            return new Promise((resolve, reject) => {
-              setTimeout(() => {
-                try {
-                  GazeCloudAPI.StartEyeTracking();
-                  resolve();
-                } catch (error) {
-                  reject(new Error("Failed to start eye tracking: " + error.message));
-                }
-              }, 1000);
-            });
-          })
-          .then(() => {
-            logMessage("🎯 Starting eye tracking system...", 'info');
-            calibrationAttempts++;
-          })
-          .catch((error) => {
-            apiState = API_STATES.ERROR;
-            console.error("Error starting tracking:", error);
-            handleGazeError({
-              code: ERROR_CODES.INITIALIZATION_ERROR,
-              message: "Failed to start tracking: " + error.message
-            });
-            // Clean up on error
-            document.querySelectorAll('video').forEach(video => video.remove());
-          });
+        try {
+          GazeCloudAPI.StartEyeTracking();
+          logMessage("🎯 Starting eye tracking system...", 'info');
+          calibrationAttempts++;
+        } catch (error) {
+          throw new Error("Failed to start eye tracking: " + error.message);
+        }
 
       } catch (error) {
         apiState = API_STATES.ERROR;
