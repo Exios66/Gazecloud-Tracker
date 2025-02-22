@@ -609,14 +609,30 @@
       request.onsuccess = () => {
         const session = request.result;
         if (session) {
+          // Clear any existing stats container
+          const existingStats = document.querySelector('.stats-container');
+          if (existingStats) {
+            existingStats.remove();
+          }
+
           // Update charts with session data
           createEyeMovementChart(session.data);
           createPupilDilationChart(session.data);
           createHeadMovementChart(session.data);
+          
           // Update stats
           const stats = computeBasicStats(session.data);
-          updateBasicStats(stats);
-          logMessage(`Loaded session ${sessionId} data`, 'success');
+          if (stats) {
+            updateBasicStats(stats);
+          }
+
+          logMessage(`Loaded session ${sessionId} data (${session.data.length} points)`, 'success');
+          
+          // Scroll to the analytics section
+          document.querySelector('.chart-container').scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'start' 
+          });
         }
       };
 
@@ -1050,6 +1066,11 @@
             if (recordedData.length > MAX_RECORDED_POINTS) {
               recordedData = recordedData.slice(-MAX_RECORDED_POINTS);
               logMessage("Trimming recorded data to prevent memory issues", 'warning');
+            }
+
+            // Update analytics dashboard every 10 data points to maintain performance
+            if (recordedData.length % 10 === 0) {
+              updateCharts();
             }
           } catch (error) {
             console.error('Error processing gaze data:', error);
@@ -1671,6 +1692,205 @@
         return false;
       }
     }
+
+    // Add chart creation and update functions before the window.onload
+    let eyeMovementChart, pupilDilationChart, headMovementChart;
+
+    function createEyeMovementChart(data) {
+      const ctx = document.getElementById('eyeMovementChart').getContext('2d');
+      if (eyeMovementChart) {
+        eyeMovementChart.destroy();
+      }
+
+      eyeMovementChart = new Chart(ctx, {
+        type: 'scatter',
+        data: {
+          datasets: [{
+            label: 'Gaze Points',
+            data: data.map(d => ({
+              x: d.x,
+              y: d.y
+            })),
+            backgroundColor: 'rgba(74, 144, 226, 0.5)',
+            borderColor: 'rgba(74, 144, 226, 1)',
+            pointRadius: 3
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              type: 'linear',
+              position: 'bottom',
+              title: {
+                display: true,
+                text: 'X Position (pixels)'
+              }
+            },
+            y: {
+              type: 'linear',
+              reverse: true,
+              title: {
+                display: true,
+                text: 'Y Position (pixels)'
+              }
+            }
+          },
+          plugins: {
+            title: {
+              display: true,
+              text: 'Eye Movement Pattern'
+            }
+          }
+        }
+      });
+    }
+
+    function createPupilDilationChart(data) {
+      const ctx = document.getElementById('pupilDilationChart').getContext('2d');
+      if (pupilDilationChart) {
+        pupilDilationChart.destroy();
+      }
+
+      pupilDilationChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.map((_, i) => i),
+          datasets: [{
+            label: 'Pupil Dilation',
+            data: data.map(d => d.pupilD),
+            borderColor: 'rgba(46, 204, 113, 1)',
+            backgroundColor: 'rgba(46, 204, 113, 0.2)',
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Time (samples)'
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Pupil Diameter'
+              }
+            }
+          },
+          plugins: {
+            title: {
+              display: true,
+              text: 'Pupil Dilation Over Time'
+            }
+          }
+        }
+      });
+    }
+
+    function createHeadMovementChart(data) {
+      const ctx = document.getElementById('headMovementChart').getContext('2d');
+      if (headMovementChart) {
+        headMovementChart.destroy();
+      }
+
+      headMovementChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.map((_, i) => i),
+          datasets: [{
+            label: 'Head X',
+            data: data.map(d => d.HeadX),
+            borderColor: 'rgba(231, 76, 60, 1)',
+            fill: false
+          }, {
+            label: 'Head Y',
+            data: data.map(d => d.HeadY),
+            borderColor: 'rgba(52, 152, 219, 1)',
+            fill: false
+          }, {
+            label: 'Head Z',
+            data: data.map(d => d.HeadZ),
+            borderColor: 'rgba(155, 89, 182, 1)',
+            fill: false
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Time (samples)'
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Head Position'
+              }
+            }
+          },
+          plugins: {
+            title: {
+              display: true,
+              text: 'Head Movement Over Time'
+            }
+          }
+        }
+      });
+    }
+
+    // Update basic stats display
+    function updateBasicStats(stats) {
+      const statsContainer = document.createElement('div');
+      statsContainer.className = 'stats-container';
+      statsContainer.innerHTML = `
+        <div class="stat-card">
+          <h3>Data Quality</h3>
+          <p>Average Confidence: ${stats.avgConfidence}</p>
+        </div>
+        <div class="stat-card">
+          <h3>Pupil Statistics</h3>
+          <p>Mean: ${stats.pupilMean}</p>
+          <p>Min: ${stats.pupilMin}</p>
+          <p>Max: ${stats.pupilMax}</p>
+          <p>Std Dev: ${stats.pupilStdDev}</p>
+        </div>
+        <div class="stat-card">
+          <h3>Head Position (Average)</h3>
+          <p>X: ${stats.headXMean}</p>
+          <p>Y: ${stats.headYMean}</p>
+          <p>Z: ${stats.headZMean}</p>
+        </div>
+      `;
+
+      // Insert stats before the chart container
+      const chartContainer = document.querySelector('.chart-container');
+      chartContainer.parentNode.insertBefore(statsContainer, chartContainer);
+    }
+
+    // Update charts in real-time during recording
+    function updateCharts() {
+      if (!tracking || recordedData.length === 0) return;
+
+      createEyeMovementChart(recordedData);
+      createPupilDilationChart(recordedData);
+      createHeadMovementChart(recordedData);
+      
+      const stats = computeBasicStats(recordedData);
+      if (stats) {
+        updateBasicStats(stats);
+      }
+    }
+
+    // Update charts periodically during recording
+    setInterval(updateCharts, 1000);
 
     // Initialize everything when the page loads
     window.onload = function() {
