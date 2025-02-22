@@ -7,73 +7,9 @@
   <meta http-equiv="Permissions-Policy" content="interest-cohort=()">
   <title>Eye Tracking Recorder & Analysis Dashboard</title>
   <!-- GazeCloudAPI for live tracking -->
-  <script>
-    // Define backup URLs for GazeCloud API
-    const GAZECLOUD_URLS = [
-      'https://api.gazerecorder.com/GazeCloudAPI.js',
-      'https://api.gazecloud.ai/GazeCloudAPI.js',
-      'https://cdn.jsdelivr.net/npm/gazerecorder@latest/GazeCloudAPI.js'
-    ];
-
-    // Add configuration constants
-    const CONFIG = {
-      SMOOTHING_WINDOW: 3,  // Number of samples to use for smoothing
-      MIN_CONFIDENCE: 0.5,  // Minimum confidence threshold
-      CALIBRATION_TIMEOUT: 30000,  // 30 seconds
-      RECOVERY_DELAY: 2000,  // 2 seconds before retry
-      MAX_RECOVERY_ATTEMPTS: 3
-    };
-
-    let currentUrlIndex = 0;
-    let loadAttempts = 0;
-    const MAX_ATTEMPTS = 3;
-    let recoveryAttempts = 0;
-    let lastValidData = null;
-
-    function loadGazeCloudAPI() {
-      if (loadAttempts >= MAX_ATTEMPTS * GAZECLOUD_URLS.length) {
-        console.error('Failed to load GazeCloud API after all attempts');
-        handleScriptError('GazeCloudAPI');
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.src = GAZECLOUD_URLS[currentUrlIndex];
-      script.async = true;
-      script.crossOrigin = 'anonymous';
-
-      script.onload = function() {
-        console.log('GazeCloud API script loaded from:', GAZECLOUD_URLS[currentUrlIndex]);
-        if (typeof GazeCloudAPI !== 'undefined') {
-          handleScriptLoad('GazeCloudAPI');
-        } else {
-          console.warn('Script loaded but GazeCloudAPI not defined, trying next URL');
-          tryNextUrl();
-        }
-      };
-
-      script.onerror = function() {
-        console.warn('Failed to load from:', GAZECLOUD_URLS[currentUrlIndex]);
-        tryNextUrl();
-      };
-
-      document.head.appendChild(script);
-      loadAttempts++;
-    }
-
-    function tryNextUrl() {
-      currentUrlIndex = (currentUrlIndex + 1) % GAZECLOUD_URLS.length;
-      setTimeout(loadGazeCloudAPI, 1000);
-    }
-
-    // Start loading the API
-    loadGazeCloudAPI();
-  </script>
+  <script src="js/gazetracker.js" type="text/javascript"></script>
   <!-- Chart.js for visualizations -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js" 
-          integrity="sha512-TK03gH1Gm//td4nG9lGFuIxFWBViON6gWlBe1K+DGdO0T48V1XJXDzcK0pAcn0OvykthLJf8pnwU4YHqCZMZw==" 
-          crossorigin="anonymous" 
-          referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js" integrity="sha512-TK03gH1Gm//td4nG9lGFuIxFWBViON6gWlBe1K+DGdO0T48V1XJXDzcK0pAcn0OvykthLJf8pnwU4YHqCZMZw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <!-- PapaParse for CSV processing -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js" 
           integrity="sha512-rKFvwjvE4liWPlFnvH4ZhRDfNZ9FOpdkD/BU5gAIA3VS3vOQrQ5BjKgbO3kxebKhHdHcNUHLqxQYSoxee9UwgA==" 
@@ -100,873 +36,234 @@
       /* Dark theme variables */
       --bg-primary: #1a1a1a;
       --bg-secondary: #2d2d2d;
-      --text-primary: #ffffff;
-      --text-secondary: #cccccc;
-      --border-color: #404040;
-      --shadow-color: rgba(0, 0, 0, 0.3);
-      --accent-color: #64b5f6;
-      --success-color: #66bb6a;
-      --warning-color: #ffd54f;
-      --error-color: #ef5350;
-      --chart-bg: rgba(45, 45, 45, 0.9);
-      --notification-bg: rgba(45, 45, 45, 0.95);
-    }
+  <script type="text/javascript" language="javascript" nomodule>
+    (function() {
+      'use strict';
+      // Constants and configuration
+      const DB_NAME = 'eyeTrackingDB';
+      const DB_VERSION = 1;
+      const STORE_NAME = 'sessions';
 
-    /* Theme transition */
-    * {
-      transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
-    }
+      // Define backup URLs for GazeCloud API
+      const GAZECLOUD_URLS = [
+        'https://api.gazerecorder.com/GazeCloudAPI.js',
+        'https://api.gazecloud.ai/GazeCloudAPI.js',
+        'https://cdn.jsdelivr.net/npm/gazerecorder@latest/GazeCloudAPI.js',
+        'https://api.gazerecorder.com/GazeCloudAPIv2.js',
+        'https://api2.gazerecorder.com/GazeCloudAPI.js'
+      ];
 
-    body {
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-      margin: 0;
-      padding: 20px;
-      background-color: var(--bg-primary);
-      color: var(--text-primary);
-    }
+      // Add configuration constants
+      const CONFIG = {
+        SMOOTHING_WINDOW: 3,  // Number of samples to use for smoothing
+        MIN_CONFIDENCE: 0.5,  // Minimum confidence threshold
+        CALIBRATION_TIMEOUT: 30000,  // 30 seconds
+        RECOVERY_DELAY: 2000,  // 2 seconds before retry
+        MAX_RECOVERY_ATTEMPTS: 3,
+        SCRIPT_LOAD_TIMEOUT: 10000,  // 10 seconds timeout for script loading
+        API_CHECK_INTERVAL: 100,  // 100ms interval to check if API is loaded
+        MAX_API_CHECK_ATTEMPTS: 50  // Maximum number of attempts to check if API is loaded
+      };
 
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
+      let currentUrlIndex = 0;
+      let loadAttempts = 0;
+      const MAX_ATTEMPTS = 3;
+      let recoveryAttempts = 0;
+      let lastValidData = null;
+      let scriptLoadTimeout = null;
+      let apiCheckInterval = null;
+      let apiCheckAttempts = 0;
 
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 30px;
-    }
-
-    .theme-toggle {
-      background: var(--bg-secondary);
-      border: 2px solid var(--border-color);
-      border-radius: 20px;
-      padding: 5px 15px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.9em;
-      color: var(--text-primary);
-      transition: transform 0.2s ease;
-    }
-
-    .theme-toggle:hover {
-      transform: scale(1.05);
-    }
-
-    .theme-toggle:active {
-      transform: scale(0.95);
-    }
-
-    h1, h2, h3 {
-      color: var(--text-primary);
-      margin: 0;
-    }
-
-    hr {
-      margin: 40px 0;
-      border: none;
-      border-top: 1px solid var(--border-color);
-    }
-
-    button {
-      background: var(--bg-secondary);
-      color: var(--text-primary);
-      border: 2px solid var(--border-color);
-      border-radius: 8px;
-      padding: 10px 20px;
-      font-size: 1em;
-      cursor: pointer;
-      transition: all 0.3s ease;
-    }
-
-    button:hover {
-      background: var(--accent-color);
-      color: white;
-      border-color: var(--accent-color);
-      transform: translateY(-2px);
-    }
-
-    button:active {
-      transform: translateY(0);
-    }
-
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    #liveData, #debugLog {
-      background-color: var(--bg-secondary);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 15px;
-      margin: 15px 0;
-      box-shadow: 0 2px 8px var(--shadow-color);
-    }
-
-    #liveData {
-      min-height: 50px;
-    }
-
-    #debugLog {
-      max-height: 200px;
-      overflow-y: auto;
-      font-family: 'Consolas', monospace;
-      font-size: 0.9em;
-      white-space: pre-wrap;
-    }
-
-    .file-input, .stats-container, .chart-container {
-      background: var(--bg-secondary);
-      padding: 20px;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px var(--shadow-color);
-      margin-bottom: 30px;
-      border: 1px solid var(--border-color);
-    }
-
-    .stats-container {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 20px;
-    }
-
-    .stat-card {
-      background: var(--bg-secondary);
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 6px var(--shadow-color);
-      border: 1px solid var(--border-color);
-    }
-
-    .chart-controls {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-      justify-content: center;
-    }
-
-    .chart-toggle {
-      padding: 10px 20px;
-      border: none;
-      border-radius: 8px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      opacity: 0.7;
-    }
-
-    .chart-toggle.active {
-      opacity: 1;
-      transform: scale(1.05);
-      box-shadow: 0 4px 12px var(--shadow-color);
-    }
-
-    /* Notification system */
-    .notification-container {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      z-index: 1000;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      pointer-events: none;
-    }
-
-    .notification {
-      background: var(--notification-bg);
-      color: var(--text-primary);
-      padding: 15px 20px;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px var(--shadow-color);
-      margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      pointer-events: auto;
-      animation: slideIn 0.3s ease forwards;
-      max-width: 300px;
-      border-left: 4px solid var(--accent-color);
-    }
-
-    .notification.success { border-color: var(--success-color); }
-    .notification.warning { border-color: var(--warning-color); }
-    .notification.error { border-color: var(--error-color); }
-
-    .notification.fade-out {
-      animation: slideOut 0.3s ease forwards;
-    }
-
-    @keyframes slideIn {
-      from {
-        transform: translateX(100%);
-        opacity: 0;
+      // Function to check if the API is properly loaded
+      function isGazeCloudAPILoaded() {
+        return typeof GazeCloudAPI !== 'undefined' && 
+               typeof GazeCloudAPI.StartEyeTracking === 'function' &&
+               typeof GazeCloudAPI.StopEyeTracking === 'function';
       }
-      to {
-        transform: translateX(0);
-        opacity: 1;
-      }
-    }
 
-    @keyframes slideOut {
-      from {
-        transform: translateX(0);
-        opacity: 1;
-      }
-      to {
-        transform: translateX(100%);
-        opacity: 0;
-      }
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
-    /* Chart theme adaptations */
-    .chart-container {
-      background: var(--chart-bg);
-    }
-
-    canvas {
-      border-radius: 8px;
-    }
-
-    .live-data-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 20px;
-      padding: 15px;
-      background: var(--bg-secondary);
-      border-radius: 8px;
-      box-shadow: 0 2px 8px var(--shadow-color);
-    }
-    
-    .data-section {
-      padding: 10px;
-      border-left: 3px solid var(--accent-color);
-    }
-    
-    .data-value {
-      font-family: 'Consolas', monospace;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-    
-    .data-value.good { color: var(--success-color); }
-    .data-value.poor { color: var(--error-color); }
-    .data-value.calibrating { color: var(--warning-color); }
-    .data-value.recording { color: var(--success-color); }
-    .data-value.idle { color: var(--text-secondary); }
-    
-    #liveData {
-      margin: 20px 0;
-      transition: all 0.3s ease;
-    }
-
-    .calibration-message {
-      background: var(--bg-secondary);
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px var(--shadow-color);
-      margin: 20px 0;
-      border-left: 4px solid var(--accent-color);
-    }
-    
-    .calibration-message.error {
-      border-left-color: var(--error-color);
-    }
-    
-    .calibration-message h3 {
-      margin: 0 0 15px 0;
-      color: var(--text-primary);
-    }
-    
-    .calibration-message ol,
-    .calibration-message ul {
-      margin: 10px 0;
-      padding-left: 25px;
-    }
-    
-    .calibration-message li {
-      margin: 8px 0;
-      color: var(--text-secondary);
-    }
-
-    .initialization-steps {
-      margin: 15px 0;
-    }
-    
-    .step {
-      display: flex;
-      align-items: center;
-      margin: 10px 0;
-      gap: 10px;
-    }
-    
-    .step-indicator {
-      font-size: 1.2em;
-    }
-    
-    .calibration-progress {
-      margin: 20px 0;
-    }
-    
-    .progress-bar {
-      height: 6px;
-      background: var(--border-color);
-      border-radius: 3px;
-      overflow: hidden;
-    }
-    
-    .progress-indicator {
-      height: 100%;
-      background: var(--accent-color);
-      width: 0%;
-      animation: progress 30s linear;
-    }
-    
-    @keyframes progress {
-      from { width: 0%; }
-      to { width: 100%; }
-    }
-    
-    .calibration-message ol li {
-      opacity: 0.6;
-      transition: opacity 0.3s ease;
-    }
-    
-    .calibration-message ol li.active {
-      opacity: 1;
-      color: var(--text-primary);
-      font-weight: 600;
-    }
-
-    .sessions-container {
-      background: var(--bg-secondary);
-      padding: 20px;
-      border-radius: 12px;
-      margin: 20px 0;
-      box-shadow: 0 4px 12px var(--shadow-color);
-    }
-
-    .session-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 15px;
-      margin: 10px 0;
-      background: var(--bg-primary);
-      border-radius: 8px;
-      border: 1px solid var(--border-color);
-    }
-
-    .session-info {
-      display: flex;
-      gap: 20px;
-      align-items: center;
-    }
-
-    .session-actions {
-      display: flex;
-      gap: 10px;
-    }
-
-    .session-actions button {
-      padding: 5px 10px;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-
-    .chart-container {
-      background: var(--bg-secondary);
-      border-radius: 8px;
-      padding: 15px;
-      margin: 20px 0;
-      box-shadow: 0 2px 8px var(--shadow-color);
-      height: 300px;
-    }
-
-    .chart-container canvas {
-      width: 100% !important;
-      height: 100% !important;
-    }
-  </style>
-  <script>
-    /********** LIVE EYE TRACKING SECTION **********/
-    let recordedData = [];
-    let tracking = false;
-    let lastUpdate = 0;
-    let calibrationAttempts = 0;
-    let isCalibrating = false;
-    let dataCollectionReady = false;
-    let lastDataPoint = null;
-    const UPDATE_INTERVAL = 50; // ms
-    const MAX_RECORDED_POINTS = 10000;
-    const MAX_CALIBRATION_ATTEMPTS = 3;
-    const CALIBRATION_TIMEOUT = 30000; // 30 seconds
-    const MIN_DATA_INTERVAL = 16; // Minimum interval between data points (ms)
-    const DATA_QUALITY_THRESHOLD = 0.6; // Minimum confidence threshold
-
-    // Add database handling code after the existing variables
-    const DB_NAME = 'EyeTrackingDB';
-    const DB_VERSION = 1;
-    const STORE_NAME = 'sessions';
-    let db;
-
-    // Initialize database
-    function initDB() {
-      return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
-        
-        request.onerror = (event) => {
-          logMessage("Database error: " + event.target.error, 'error');
-          reject(event.target.error);
-        };
-        
-        request.onsuccess = (event) => {
-          db = event.target.result;
-          logMessage("Database initialized successfully", 'success');
-          resolve(db);
-        };
-        
-        request.onupgradeneeded = (event) => {
-          const db = event.target.result;
-          if (!db.objectStoreNames.contains(STORE_NAME)) {
-            const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
-            store.createIndex('timestamp', 'timestamp', { unique: false });
-            store.createIndex('duration', 'duration', { unique: false });
-            logMessage("Database structure created", 'info');
+      // Function to validate API functionality
+      function validateAPI() {
+        try {
+          if (!isGazeCloudAPILoaded()) {
+            throw new Error('GazeCloud API not properly initialized');
           }
-        };
-      });
+          return true;
+        } catch (error) {
+          console.error('API validation failed:', error);
+          return false;
+        }
+      }
+
+      // Enhanced script loading with timeout and validation
+      function loadGazeCloudAPI() {
+        return new Promise((resolve, reject) => {
+          if (loadAttempts >= MAX_ATTEMPTS * GAZECLOUD_URLS.length) {
+            const error = new Error('Failed to load GazeCloud API after all attempts');
+            console.error(error);
+            handleScriptError('GazeCloudAPI');
+            reject(error);
+            return;
+          }
+
+          // Clear any existing timeouts and intervals
+          if (scriptLoadTimeout) clearTimeout(scriptLoadTimeout);
+          if (apiCheckInterval) clearInterval(apiCheckInterval);
+          apiCheckAttempts = 0;
+
+          // Set timeout for script loading
+          scriptLoadTimeout = setTimeout(() => {
+            console.warn('Script load timeout, trying next URL');
+            tryNextUrl();
+            reject(new Error('Script load timeout'));
+          }, CONFIG.SCRIPT_LOAD_TIMEOUT);
+
+          const script = document.createElement('script');
+          script.src = GAZECLOUD_URLS[currentUrlIndex];
+          script.async = true;
+          script.crossOrigin = 'anonymous';
+
+          // Add integrity check if available
+          if (GAZECLOUD_URLS[currentUrlIndex].includes('cdn.jsdelivr.net')) {
+            script.integrity = 'sha384-...'; // Add proper integrity hash if available
+          }
+
+          script.onload = function() {
+            clearTimeout(scriptLoadTimeout);
+            console.log('Script loaded from:', GAZECLOUD_URLS[currentUrlIndex]);
+
+            // Start checking if API is properly loaded
+            apiCheckInterval = setInterval(() => {
+              apiCheckAttempts++;
+              
+              if (isGazeCloudAPILoaded()) {
+                clearInterval(apiCheckInterval);
+                console.log('GazeCloud API successfully loaded and validated');
+                handleScriptLoad('GazeCloudAPI');
+                resolve();
+    //<![CDATA[
+    // Define backup URLs for GazeCloud API
+    const GAZECLOUD_URLS = [
+      'https://api.gazerecorder.com/GazeCloudAPI.js',
+      'https://api.gazecloud.ai/GazeCloudAPI.js',
+      'https://cdn.jsdelivr.net/npm/gazerecorder@latest/GazeCloudAPI.js',
+      'https://api.gazerecorder.com/GazeCloudAPIv2.js',
+      'https://api2.gazerecorder.com/GazeCloudAPI.js'
+    ];
+
+    // Add configuration constants
+    const CONFIG = {
+      SMOOTHING_WINDOW: 3,  // Number of samples to use for smoothing
+      MIN_CONFIDENCE: 0.5,  // Minimum confidence threshold
+      CALIBRATION_TIMEOUT: 30000,  // 30 seconds
+      RECOVERY_DELAY: 2000,  // 2 seconds before retry
+      MAX_RECOVERY_ATTEMPTS: 3,
+      SCRIPT_LOAD_TIMEOUT: 10000,  // 10 seconds timeout for script loading
+      API_CHECK_INTERVAL: 100,  // 100ms interval to check if API is loaded
+      MAX_API_CHECK_ATTEMPTS: 50  // Maximum number of attempts to check if API is loaded
+    };
+
+    let currentUrlIndex = 0;
+    let loadAttempts = 0;
+    const MAX_ATTEMPTS = 3;
+    let recoveryAttempts = 0;
+    let lastValidData = null;
+    let scriptLoadTimeout = null;
+    let apiCheckInterval = null;
+    let apiCheckAttempts = 0;
+
+    // Function to check if the API is properly loaded
+    function isGazeCloudAPILoaded() {
+      return typeof GazeCloudAPI !== 'undefined' && 
+             typeof GazeCloudAPI.StartEyeTracking === 'function' &&
+             typeof GazeCloudAPI.StopEyeTracking === 'function';
     }
 
-    // Save session data to database
-    function saveSessionToDB(sessionData) {
+    // Function to validate API functionality
+    function validateAPI() {
+      try {
+        if (!isGazeCloudAPILoaded()) {
+          throw new Error('GazeCloud API not properly initialized');
+        }
+        return true;
+      } catch (error) {
+        console.error('API validation failed:', error);
+        return false;
+      }
+    }
+
+    // Enhanced script loading with timeout and validation
+    function loadGazeCloudAPI() {
       return new Promise((resolve, reject) => {
-        if (!db) {
-          reject(new Error("Database not initialized"));
+        if (loadAttempts >= MAX_ATTEMPTS * GAZECLOUD_URLS.length) {
+          const error = new Error('Failed to load GazeCloud API after all attempts');
+          console.error(error);
+          handleScriptError('GazeCloudAPI');
+          reject(error);
           return;
         }
 
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        
-        const session = {
-          timestamp: new Date().toISOString(),
-          duration: sessionData.length > 0 ? 
-            (sessionData[sessionData.length - 1].timestamp - sessionData[0].timestamp) / 1000 : 0,
-          dataPoints: sessionData.length,
-          averageConfidence: mean(sessionData.map(d => d.confidence || 0)),
-          data: sessionData
-        };
+        // Clear any existing timeouts and intervals
+        if (scriptLoadTimeout) clearTimeout(scriptLoadTimeout);
+        if (apiCheckInterval) clearInterval(apiCheckInterval);
+        apiCheckAttempts = 0;
 
-        const request = store.add(session);
-        
-        request.onsuccess = () => {
-          logMessage(`Session saved to database (${session.dataPoints} points)`, 'success');
-          resolve(request.result);
-        };
-        
-        request.onerror = () => {
-          logMessage("Error saving session to database", 'error');
-          reject(request.error);
-        };
-      });
-    }
+        // Set timeout for script loading
+        scriptLoadTimeout = setTimeout(() => {
+          console.warn('Script load timeout, trying next URL');
+          tryNextUrl();
+          reject(new Error('Script load timeout'));
+        }, CONFIG.SCRIPT_LOAD_TIMEOUT);
 
-    // Load sessions from database
-    function loadSessions() {
-      return new Promise((resolve, reject) => {
-        if (!db) {
-          reject(new Error("Database not initialized"));
-          return;
+        const script = document.createElement('script');
+        script.src = GAZECLOUD_URLS[currentUrlIndex];
+        script.async = true;
+        script.crossOrigin = 'anonymous';
+
+        // Add integrity check if available
+        if (GAZECLOUD_URLS[currentUrlIndex].includes('cdn.jsdelivr.net')) {
+          script.integrity = 'sha384-...'; // Add proper integrity hash if available
         }
 
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAll();
+        script.onload = function() {
+          clearTimeout(scriptLoadTimeout);
+          console.log('Script loaded from:', GAZECLOUD_URLS[currentUrlIndex]);
 
-        request.onsuccess = () => {
-          const sessions = request.result;
-          updateSessionsList(sessions);
-          resolve(sessions);
-        };
-
-        request.onerror = () => {
-          logMessage("Error loading sessions from database", 'error');
-          reject(request.error);
-        };
-      });
-    }
-
-    // Update sessions list in UI
-    function updateSessionsList(sessions) {
-      const sessionsList = document.getElementById('sessionsList');
-      if (!sessionsList) return;
-
-      sessionsList.innerHTML = '';
-      sessions.forEach(session => {
-        const sessionElement = document.createElement('div');
-        sessionElement.className = 'session-item';
-        sessionElement.innerHTML = `
-          <div class="session-info">
-            <strong>Session ${session.id}</strong>
-            <span>Date: ${new Date(session.timestamp).toLocaleString()}</span>
-            <span>Duration: ${session.duration.toFixed(1)}s</span>
-            <span>Points: ${session.dataPoints}</span>
-            <span>Confidence: ${(session.averageConfidence * 100).toFixed(1)}%</span>
-          </div>
-          <div class="session-actions">
-            <button onclick="loadSessionData(${session.id})">View</button>
-            <button onclick="exportSessionData(${session.id})">Export</button>
-            <button onclick="deleteSession(${session.id})">Delete</button>
-          </div>
-        `;
-        sessionsList.appendChild(sessionElement);
-      });
-    }
-
-    // Load specific session data
-    function loadSessionData(sessionId) {
-      const transaction = db.transaction([STORE_NAME], 'readonly');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.get(sessionId);
-
-      request.onsuccess = () => {
-        const session = request.result;
-        if (session) {
-          // Clear any existing stats container
-          const existingStats = document.querySelector('.stats-container');
-          if (existingStats) {
-            existingStats.remove();
-          }
-
-          // Update charts with session data
-          createEyeMovementChart(session.data);
-          createPupilDilationChart(session.data);
-          createHeadMovementChart(session.data);
-          
-          // Update stats
-          const stats = computeBasicStats(session.data);
-          if (stats) {
-            updateBasicStats(stats);
-          }
-
-          logMessage(`Loaded session ${sessionId} data (${session.data.length} points)`, 'success');
-          
-          // Scroll to the analytics section
-          document.querySelector('.chart-container').scrollIntoView({ 
-            behavior: 'smooth', 
-            block: 'start' 
-          });
-        }
-      };
-
-      request.onerror = () => {
-        logMessage(`Error loading session ${sessionId}`, 'error');
-      };
-    }
-
-    // Export specific session data
-    function exportSessionData(sessionId) {
-      const transaction = db.transaction([STORE_NAME], 'readonly');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.get(sessionId);
-
-      request.onsuccess = () => {
-        const session = request.result;
-        if (session) {
-          const csvContent = "data:text/csv;charset=utf-8,";
-          // Add headers
-          csvContent += "timestamp,x,y,state,confidence,pupilD,HeadX,HeadY,HeadZ,HeadYaw,HeadPitch,HeadRoll\n";
-          
-          // Add data rows
-          session.data.forEach(data => {
-            const row = [
-              data.timestamp,
-              data.x || '',
-              data.y || '',
-              data.state || '',
-              data.confidence || '',
-              data.pupilD || '',
-              data.HeadX || '',
-              data.HeadY || '',
-              data.HeadZ || '',
-              data.HeadYaw || '',
-              data.HeadPitch || '',
-              data.HeadRoll || ''
-            ].join(',');
-            csvContent += row + "\n";
-          });
-
-          const encodedUri = encodeURI(csvContent);
-          const link = document.createElement("a");
-          link.setAttribute("href", encodedUri);
-          link.setAttribute("download", `eye_tracking_session_${sessionId}_${new Date().toISOString()}.csv`);
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          logMessage(`Exported session ${sessionId} data`, 'success');
-        }
-      };
-
-      request.onerror = () => {
-        logMessage(`Error exporting session ${sessionId}`, 'error');
-      };
-    }
-
-    // Delete specific session
-    function deleteSession(sessionId) {
-      if (!confirm('Are you sure you want to delete this session?')) return;
-
-      const transaction = db.transaction([STORE_NAME], 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.delete(sessionId);
-
-      request.onsuccess = () => {
-        logMessage(`Deleted session ${sessionId}`, 'success');
-        loadSessions(); // Refresh the sessions list
-      };
-
-      request.onerror = () => {
-        logMessage(`Error deleting session ${sessionId}`, 'error');
-      };
-    }
-
-    // Update UI state
-    function updateUIState(isRecording) {
-      try {
-        const startBtn = document.querySelector('button[onclick="startTracking()"]');
-        const stopBtn = document.querySelector('button[onclick="stopTracking()"]');
-        const exportBtn = document.querySelector('button[onclick="exportCSV()"]');
-        const clearBtn = document.querySelector('button[onclick="clearData()"]');
-        
-        if (startBtn) startBtn.disabled = isRecording;
-        if (stopBtn) stopBtn.disabled = !isRecording;
-        if (exportBtn) exportBtn.disabled = !recordedData.length;
-        if (clearBtn) clearBtn.disabled = !recordedData.length;
-      } catch (error) {
-        console.error("Error updating UI state:", error);
-      }
-    }
-
-    // Enhanced logging with severity levels
-    function logMessage(message, level = 'info') {
-      try {
-        const logDiv = document.getElementById("debugLog");
-        const timestamp = new Date().toLocaleTimeString();
-        const logLevels = {
-          error: '🔴',
-          warning: '🟡',
-          success: '🟢',
-          info: 'ℹ️'
-        };
-        const logEntry = `[${timestamp}] ${logLevels[level] || 'ℹ️'} ${message}\n`;
-        
-        logDiv.textContent += logEntry;
-        logDiv.scrollTop = logDiv.scrollHeight;
-        
-        // Console logging with appropriate methods
-        switch(level) {
-          case 'error':
-            console.error(message);
-            break;
-          case 'warning':
-            console.warn(message);
-            break;
-          default:
-            console.log(message);
-        }
-      } catch (error) {
-        console.error("Error in logMessage:", error);
-      }
-    }
-
-    // Update the live data display with the most recent gaze values
-    function updateLiveData(data) {
-      try {
-        const now = Date.now();
-        if (now - lastUpdate < UPDATE_INTERVAL) return;
-        lastUpdate = now;
-
-        const liveDiv = document.getElementById("liveData");
-        if (!liveDiv) return;
-
-        // Create a more detailed live data display
-        liveDiv.innerHTML = `
-          <div class="live-data-grid">
-            <div class="data-section">
-              <strong>Gaze Data:</strong><br>
-              State: <span class="data-value">${data.state || 'N/A'}</span><br>
-              X: <span class="data-value">${(data.docX || data.x || 0).toFixed(2)}</span><br>
-              Y: <span class="data-value">${(data.docY || data.y || 0).toFixed(2)}</span><br>
-              Confidence: <span class="data-value ${(data.confidence || 0) > DATA_QUALITY_THRESHOLD ? 'good' : 'poor'}">${((data.confidence || 0) * 100).toFixed(1)}%</span>
-            </div>
-            <div class="data-section">
-              <strong>Head Position:</strong><br>
-              X: <span class="data-value">${(data.HeadX || 0).toFixed(2)}</span><br>
-              Y: <span class="data-value">${(data.HeadY || 0).toFixed(2)}</span><br>
-              Z: <span class="data-value">${(data.HeadZ || 0).toFixed(2)}</span>
-            </div>
-            <div class="data-section">
-              <strong>Session Info:</strong><br>
-              Points: <span class="data-value">${recordedData.length}</span><br>
-              Duration: <span class="data-value">${((now - recordedData[0]?.timestamp || now) / 1000).toFixed(1)}s</span><br>
-              Status: <span class="data-value ${isCalibrating ? 'calibrating' : (tracking ? 'recording' : 'idle')}">${isCalibrating ? 'Calibrating...' : (tracking ? 'Recording' : 'Idle')}</span>
-            </div>
-          </div>
-        `;
-      } catch (error) {
-        console.error("Error in updateLiveData:", error);
-      }
-    }
-
-    // Theme management
-    function initializeTheme() {
-      const currentTheme = localStorage.getItem('theme') || 'light';
-      document.documentElement.setAttribute('data-theme', currentTheme);
-      
-      const themeToggle = document.createElement('button');
-      themeToggle.className = 'theme-toggle';
-      themeToggle.innerHTML = currentTheme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode';
-      themeToggle.onclick = toggleTheme;
-      
-      document.querySelector('.header').appendChild(themeToggle);
-    }
-    
-    function toggleTheme() {
-      const currentTheme = document.documentElement.getAttribute('data-theme');
-      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-      
-      document.documentElement.setAttribute('data-theme', newTheme);
-      localStorage.setItem('theme', newTheme);
-      
-      const themeToggle = document.querySelector('.theme-toggle');
-      themeToggle.innerHTML = newTheme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode';
-      
-      // Update chart themes if they exist
-      updateChartThemes();
-    }
-    
-    function updateChartThemes() {
-      const charts = [window.eyeMovementChart, window.pupilDilationChart, window.headMovementChart];
-      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      
-      charts.forEach(chart => {
-        if (chart && chart.options) {
-          chart.options.scales.x.grid.color = isDark ? '#404040' : '#dddddd';
-          chart.options.scales.y.grid.color = isDark ? '#404040' : '#dddddd';
-          chart.options.scales.x.ticks.color = isDark ? '#cccccc' : '#666666';
-          chart.options.scales.y.ticks.color = isDark ? '#cccccc' : '#666666';
-          chart.update();
-        }
-      });
-    }
-
-    // Add the resetDataStructures function before it's used
-    function resetDataStructures() {
-      try {
-        // Clear recorded data array
-        recordedData = [];
-        
-        // Reset state variables
-        tracking = false;
-        isCalibrating = false;
-        lastUpdate = 0;
-        lastDataPoint = null;
-        
-        // Safely destroy existing charts
-        const charts = {
-          eyeMovementChart: window.eyeMovementChart,
-          pupilDilationChart: window.pupilDilationChart,
-          headMovementChart: window.headMovementChart
-        };
-        
-        for (const [name, chart] of Object.entries(charts)) {
-          if (chart && typeof chart.destroy === 'function') {
-            try {
-              chart.destroy();
-              window[name] = null;
-            } catch (chartError) {
-              console.error(`Error destroying ${name}:`, chartError);
+          // Start checking if API is properly loaded
+          apiCheckInterval = setInterval(() => {
+            apiCheckAttempts++;
+            
+            if (isGazeCloudAPILoaded()) {
+              clearInterval(apiCheckInterval);
+              console.log('GazeCloud API successfully loaded and validated');
+              handleScriptLoad('GazeCloudAPI');
+              resolve();
+            } else if (apiCheckAttempts >= CONFIG.MAX_API_CHECK_ATTEMPTS) {
+              clearInterval(apiCheckInterval);
+              console.warn('API not available after script load, trying next URL');
+              tryNextUrl();
+              reject(new Error('API not available after script load'));
             }
-          }
-        }
+          }, CONFIG.API_CHECK_INTERVAL);
+        };
 
-        // Clear canvas contexts
-        ['eyeMovementChart', 'pupilDilationChart', 'headMovementChart'].forEach(canvasId => {
-          const canvas = document.getElementById(canvasId);
-          if (canvas) {
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-          }
-        });
+        script.onerror = function(error) {
+          clearTimeout(scriptLoadTimeout);
+          console.warn('Failed to load from:', GAZECLOUD_URLS[currentUrlIndex], error);
+          tryNextUrl();
+          reject(error);
+        };
 
-        // Reset UI elements
-        document.getElementById("liveData").innerHTML = "<em>Live gaze data will appear here...</em>";
-        
-        // Update UI state
-        updateUIState(false);
-        
-        logMessage("Data structures reset successfully", 'success');
-      } catch (error) {
-        console.error("Error in resetDataStructures:", error);
-        logMessage("Error resetting data structures: " + error.message, 'error');
-        throw error; // Re-throw to be caught by the calling function
-      }
+        // Remove any existing GazeCloud API scripts
+        const existingScripts = document.querySelectorAll('script[src*="GazeCloudAPI"]');
+        existingScripts.forEach(script => script.remove());
+
+        // Add the new script
+        document.head.appendChild(script);
+        loadAttempts++;
+      });
     }
 
-    // Add API verification states
-    const API_STATES = {
-      INITIALIZING: 'initializing',
-      CONNECTING: 'connecting',
-      CONNECTED: 'connected',
-      CALIBRATING: 'calibrating',
-      RECORDING: 'recording',
-      ERROR: 'error'
-    };
-    let apiState = API_STATES.INITIALIZING;
-    let calibrationStartTime = 0;
-
-    // Add debug mode and detailed error tracking
-    const DEBUG = true;
-    const ERROR_CODES = {
-      API_NOT_FOUND: 'API_NOT_FOUND',
-      API_LOAD_TIMEOUT: 'API_LOAD_TIMEOUT',
-      WEBSOCKET_ERROR: 'WEBSOCKET_ERROR',
-      CAMERA_DENIED: 'CAMERA_DENIED',
-      INITIALIZATION_ERROR: 'INITIALIZATION_ERROR',
-      CALIBRATION_ERROR: 'CALIBRATION_ERROR',
-      CONNECTION_ERROR: 'CONNECTION_ERROR',
-      RECOVERY_FAILED: 'RECOVERY_FAILED'
-    };
-
-    // Enhanced error logging
-    function debugLog(message, data = null) {
-      if (!DEBUG) return;
-      const timestamp = new Date().toISOString();
-      console.log(`[${timestamp}] Debug:`, message);
-      if (data) console.log('Debug data:', data);
-      logMessage(`🔍 Debug: ${message}`, 'info');
-    }
-
-    // Add at the start of your script section
-    let gazeCloudScriptLoaded = false;
-
-    function handleScriptLoad(scriptName) {
-      console.log(`${scriptName} script loaded successfully`);
-      if (scriptName === 'GazeCloudAPI') {
-        gazeCloudScriptLoaded = true;
-        initializeGazeCloudAPI();
-      }
-    }
-
+    // Enhanced error handling for script loading
     function handleScriptError(scriptName) {
       console.error(`Failed to load ${scriptName} script`);
       gazeCloudScriptLoaded = false;
@@ -976,239 +273,1073 @@
           <h3>❌ Script Loading Error</h3>
           <p>Failed to load ${scriptName} after multiple attempts. Please check:</p>
           <ol>
-            <li>Your internet connection (try opening <a href="https://api.gazerecorder.com/GazeCloudAPI.js" target="_blank">GazeCloud API</a> in a new tab)</li>
-            <li>If you're behind a corporate firewall or VPN, try disabling it temporarily</li>
-            <li>Disable any content blockers or ad blockers</li>
-            <li>Clear your browser cache and cookies</li>
-            <li>Make sure you're using a supported browser (Chrome recommended)</li>
+            <li>Your internet connection</li>
+            <li>If you're behind a corporate firewall or VPN</li>
+            <li>If you have any content blockers or ad blockers active</li>
+            <li>If you're using a supported browser (Chrome recommended)</li>
+            <li>If you need to clear your browser cache</li>
           </ol>
-          <p>Additional troubleshooting:</p>
+          <p>Technical Details:</p>
           <ul>
             <li>Current URL attempted: ${GAZECLOUD_URLS[currentUrlIndex]}</li>
             <li>Total attempts made: ${loadAttempts}</li>
-            <li>Try opening your browser's developer tools (F12) and check the Console tab for more details</li>
+            <li>Browser: ${navigator.userAgent}</li>
+            <li>Protocol: ${window.location.protocol}</li>
           </ul>
-          <p>Click "Start Tracking" to try again, or refresh the page.</p>
+          <p>Automatic retry will occur in ${CONFIG.RECOVERY_DELAY/1000} seconds...</p>
         </div>
       `;
       
       document.getElementById("liveData").innerHTML = errorMessage;
-      logMessage(`Failed to load ${scriptName} script after ${loadAttempts} attempts`, 'error');
+      logMessage(`Failed to load ${scriptName} script (Attempt ${loadAttempts})`, 'error');
+
+      // Attempt recovery
+      setTimeout(() => {
+        loadGazeCloudAPI()
+          .then(() => logMessage('Recovery successful', 'success'))
+          .catch(() => logMessage('Recovery failed', 'error'));
+      }, CONFIG.RECOVERY_DELAY);
     }
 
-    function setupGazeCloudCallbacks() {
-      if (typeof GazeCloudAPI === 'undefined') {
-        console.error('Cannot setup callbacks - GazeCloudAPI not defined');
-        return false;
-      }
-
-      try {
-        // Setup all required callbacks
-        GazeCloudAPI.OnCalibrationComplete = function() {
-          console.log('Calibration completed successfully');
-          logMessage("✅ Calibration completed!", 'success');
-          isCalibrating = false;
-          tracking = true;
-          dataCollectionReady = true;
-          calibrationAttempts = 0;
-          calibrationStartTime = 0;
-          updateUIState(true);
-        };
-
-        GazeCloudAPI.OnCalibrationFail = function() {
-          console.error('Calibration failed');
-          logMessage("❌ Calibration failed. Please try again.", 'error');
-          isCalibrating = false;
-          tracking = false;
-          dataCollectionReady = false;
-          calibrationAttempts++;
-          calibrationStartTime = 0;
-          updateUIState(false);
-          handleCalibrationFailure();
-        };
-
-        GazeCloudAPI.OnCalibrationStart = function() {
-          console.log('Calibration started');
-          logMessage("🎯 Starting calibration...", 'info');
-          isCalibrating = true;
-          tracking = false;
-          dataCollectionReady = false;
-          calibrationStartTime = Date.now();
-          updateUIState(false);
-        };
-
-        GazeCloudAPI.OnCamDenied = function() {
-          console.error('Camera access denied');
-          handleGazeError({
-            code: 'CAMERA_DENIED',
-            message: "Camera access was denied. Please check your camera permissions and try again."
-          });
-          tracking = false;
-          updateUIState(false);
-        };
-
-        GazeCloudAPI.OnError = function(error) {
-          console.error('GazeCloud API error:', error);
-          
-          let errorMessage = "Unknown error occurred";
-          let errorCode = 'UNKNOWN_ERROR';
-          
-          if (error && typeof error === 'object') {
-            errorMessage = error.message || JSON.stringify(error);
-          } else if (typeof error === 'string') {
-            errorMessage = error;
-          }
-          
-          // Categorize common errors
-          if (errorMessage.toLowerCase().includes('camera')) {
-            errorCode = 'CAMERA_ERROR';
-          } else if (errorMessage.toLowerCase().includes('connection') || 
-                     errorMessage.toLowerCase().includes('websocket')) {
-            errorCode = 'CONNECTION_ERROR';
-          }
-          
-          handleGazeError({
-            code: errorCode,
-            message: errorMessage,
-            details: error
-          });
-          
-          tracking = false;
-          updateUIState(false);
-        };
-
-        GazeCloudAPI.OnResult = function(gazeData) {
-          if (!tracking) return;
-          
-          try {
-            // Process and store gaze data
-            const processedData = {
-              timestamp: Date.now(),
-              x: gazeData.docX,
-              y: gazeData.docY,
-              state: gazeData.state,
-              confidence: gazeData.confidence,
-              pupilD: gazeData.pupilD,
-              HeadX: gazeData.HeadX,
-              HeadY: gazeData.HeadY,
-              HeadZ: gazeData.HeadZ,
-              HeadYaw: gazeData.HeadYaw,
-              HeadPitch: gazeData.HeadPitch,
-              HeadRoll: gazeData.HeadRoll
-            };
-            
-            // Update live display
-            updateLiveData(processedData);
-            
-            // Store data point in both arrays
-            recordedData.push(processedData);
-            if (dataStorage.currentSession) {
-              dataStorage.currentSession.gazeData.push(processedData);
-            }
-
-            // Check data collection limits
-            if (recordedData.length > MAX_RECORDED_POINTS) {
-              recordedData = recordedData.slice(-MAX_RECORDED_POINTS);
-              logMessage("Trimming recorded data to prevent memory issues", 'warning');
-            }
-
-            // Update analytics dashboard every 10 data points to maintain performance
-            if (recordedData.length % 10 === 0) {
-              updateCharts();
-            }
-          } catch (error) {
-            console.error('Error processing gaze data:', error);
-            logMessage("Error processing gaze data: " + error.message, 'error');
-          }
-        };
-
-        return true;
-      } catch (error) {
-        console.error('Error setting up GazeCloud callbacks:', error);
-        return false;
-      }
+    // Enhanced URL cycling
+    function tryNextUrl() {
+      currentUrlIndex = (currentUrlIndex + 1) % GAZECLOUD_URLS.length;
+      setTimeout(() => {
+        loadGazeCloudAPI()
+          .catch(error => console.error('Error in tryNextUrl:', error));
+      }, 1000);
     }
 
-    // Update waitForGazeCloud function
-    function waitForGazeCloud() {
-      return new Promise(async (resolve, reject) => {
-        try {
-          const maxWaitTime = 20000; // 20 seconds
-          const checkInterval = 100; // Check every 100ms
-          let elapsedTime = 0;
+    // Initialize loading
+    loadGazeCloudAPI()
+      .then(() => {
+        logMessage('GazeCloud API loaded successfully', 'success');
+        return initializeGazeTracking();
+      })
+      .then(success => {
+        if (success) {
+          logMessage('GazeCloud API initialized and ready', 'success');
+        }
+      })
+      .catch(error => {
+        console.error('Error initializing GazeCloud API:', error);
+        logMessage('Failed to initialize GazeCloud API: ' + error.message, 'error');
+      });
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js" integrity="sha512-TK03gH1Gm//td4nG9lGFuIxFWBViON6gWlBe1K+DGdO0T48V1XJXDzcK0pAcn0OvykthLJf8pnwU4YHqCZMZw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- PapaParse for CSV processing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js" 
+            integrity="sha512-rKFvwjvE4liWPlFnvH4ZhRDfNZ9FOpdkD/BU5gAIA3VS3vOQrQ5BjKgbO3kxebKhHdHcNUHLqxQYSoxee9UwgA==" 
+            crossorigin="anonymous" 
+            referrerpolicy="no-referrer"></script>
+    <style>
+      :root {
+        /* Light theme variables */
+        --bg-primary: #f5f5f5;
+        --bg-secondary: #ffffff;
+        --text-primary: #333333;
+        --text-secondary: #666666;
+        --border-color: #dddddd;
+        --shadow-color: rgba(0, 0, 0, 0.1);
+        --accent-color: #4a90e2;
+        --success-color: #2ecc71;
+        --warning-color: #f1c40f;
+        --error-color: #e74c3c;
+        --chart-bg: rgba(255, 255, 255, 0.9);
+        --notification-bg: rgba(255, 255, 255, 0.95);
+      }
 
-          // First, try to use the existing API instance
-          if (typeof GazeCloudAPI !== 'undefined') {
-            logMessage("GazeCloud API already loaded, initializing...", 'info');
-            try {
-              await initializeGazeCloudAPI();
-              resolve();
-              return;
-            } catch (error) {
-              logMessage("Failed to initialize existing GazeCloud API: " + error.message, 'warning');
-              // Continue to try loading again
-            }
-          }
+      [data-theme="dark"] {
+        /* Dark theme variables */
+        --bg-primary: #1a1a1a;
+        --bg-secondary: #2d2d2d;
+        --text-primary: #ffffff;
+        --text-secondary: #cccccc;
+        --border-color: #404040;
+        --shadow-color: rgba(0, 0, 0, 0.3);
+        --accent-color: #64b5f6;
+        --success-color: #66bb6a;
+        --warning-color: #ffd54f;
+        --error-color: #ef5350;
+        --chart-bg: rgba(45, 45, 45, 0.9);
+        --notification-bg: rgba(45, 45, 45, 0.95);
+      }
 
-          // If not available, try to load it
-          logMessage("GazeCloud API not found, attempting to load...", 'info');
+      /* Theme transition */
+      * {
+        transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+      }
+
+      body {
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 30px;
+      }
+
+      .theme-toggle {
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-color);
+        border-radius: 20px;
+        padding: 5px 15px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.9em;
+        color: var(--text-primary);
+        transition: transform 0.2s ease;
+      }
+
+      .theme-toggle:hover {
+        transform: scale(1.05);
+      }
+
+      .theme-toggle:active {
+        transform: scale(0.95);
+      }
+
+      h1, h2, h3 {
+        color: var(--text-primary);
+        margin: 0;
+      }
+
+      hr {
+        margin: 40px 0;
+        border: none;
+        border-top: 1px solid var(--border-color);
+      }
+
+      button {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        border: 2px solid var(--border-color);
+        border-radius: 8px;
+        padding: 10px 20px;
+        font-size: 1em;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      button:hover {
+        background: var(--accent-color);
+        color: white;
+        border-color: var(--accent-color);
+        transform: translateY(-2px);
+      }
+
+      button:active {
+        transform: translateY(0);
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      #liveData, #debugLog {
+        background-color: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 15px;
+        margin: 15px 0;
+        box-shadow: 0 2px 8px var(--shadow-color);
+      }
+
+      #liveData {
+        min-height: 50px;
+      }
+
+      #debugLog {
+        max-height: 200px;
+        overflow-y: auto;
+        font-family: 'Consolas', monospace;
+        font-size: 0.9em;
+        white-space: pre-wrap;
+      }
+
+      .file-input, .stats-container, .chart-container {
+        background: var(--bg-secondary);
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px var(--shadow-color);
+        margin-bottom: 30px;
+        border: 1px solid var(--border-color);
+      }
+
+      .stats-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+      }
+
+      .stat-card {
+        background: var(--bg-secondary);
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px var(--shadow-color);
+        border: 1px solid var(--border-color);
+      }
+
+      .chart-controls {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+        justify-content: center;
+      }
+
+      .chart-toggle {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        opacity: 0.7;
+      }
+
+      .chart-toggle.active {
+        opacity: 1;
+        transform: scale(1.05);
+        box-shadow: 0 4px 12px var(--shadow-color);
+      }
+
+      /* Notification system */
+      .notification-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        pointer-events: none;
+      }
+
+      .notification {
+        background: var(--notification-bg);
+        color: var(--text-primary);
+        padding: 15px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px var(--shadow-color);
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        pointer-events: auto;
+        animation: slideIn 0.3s ease forwards;
+        max-width: 300px;
+        border-left: 4px solid var(--accent-color);
+      }
+
+      .notification.success { border-color: var(--success-color); }
+      .notification.warning { border-color: var(--warning-color); }
+      .notification.error { border-color: var(--error-color); }
+
+      .notification.fade-out {
+        animation: slideOut 0.3s ease forwards;
+      }
+
+      @keyframes slideIn {
+        from {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+
+      @keyframes slideOut {
+        from {
+          transform: translateX(0);
+          opacity: 1;
+        }
+        to {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+      }
+
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      /* Chart theme adaptations */
+      .chart-container {
+        background: var(--chart-bg);
+      }
+
+      canvas {
+        border-radius: 8px;
+      }
+
+      .live-data-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        padding: 15px;
+        background: var(--bg-secondary);
+        border-radius: 8px;
+        box-shadow: 0 2px 8px var(--shadow-color);
+      }
+      
+      .data-section {
+        padding: 10px;
+        border-left: 3px solid var(--accent-color);
+      }
+      
+      .data-value {
+        font-family: 'Consolas', monospace;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+      
+      .data-value.good { color: var(--success-color); }
+      .data-value.poor { color: var(--error-color); }
+      .data-value.calibrating { color: var(--warning-color); }
+      .data-value.recording { color: var(--success-color); }
+      .data-value.idle { color: var(--text-secondary); }
+      
+      #liveData {
+        margin: 20px 0;
+        transition: all 0.3s ease;
+      }
+
+      .calibration-message {
+        background: var(--bg-secondary);
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px var(--shadow-color);
+        margin: 20px 0;
+        border-left: 4px solid var(--accent-color);
+      }
+      
+      .calibration-message.error {
+        border-left-color: var(--error-color);
+      }
+      
+      .calibration-message h3 {
+        margin: 0 0 15px 0;
+        color: var(--text-primary);
+      }
+      
+      .calibration-message ol,
+      .calibration-message ul {
+        margin: 10px 0;
+        padding-left: 25px;
+      }
+      
+      .calibration-message li {
+        margin: 8px 0;
+        color: var(--text-secondary);
+      }
+
+      .initialization-steps {
+        margin: 15px 0;
+      }
+      
+      .step {
+        display: flex;
+        align-items: center;
+        margin: 10px 0;
+        gap: 10px;
+      }
+      
+      .step-indicator {
+        font-size: 1.2em;
+      }
+      
+      .calibration-progress {
+        margin: 20px 0;
+      }
+      
+      .progress-bar {
+        height: 6px;
+        background: var(--border-color);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      
+      .progress-indicator {
+        height: 100%;
+        background: var(--accent-color);
+        width: 0%;
+        animation: progress 30s linear;
+      }
+      
+      @keyframes progress {
+        from { width: 0%; }
+        to { width: 100%; }
+      }
+      
+      .calibration-message ol li {
+        opacity: 0.6;
+        transition: opacity 0.3s ease;
+      }
+      
+      .calibration-message ol li.active {
+        opacity: 1;
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+
+      .sessions-container {
+        background: var(--bg-secondary);
+        padding: 20px;
+        border-radius: 12px;
+        margin: 20px 0;
+        box-shadow: 0 4px 12px var(--shadow-color);
+      }
+
+      .session-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px;
+        margin: 10px 0;
+        background: var(--bg-primary);
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+      }
+
+      .session-info {
+        display: flex;
+        gap: 20px;
+        align-items: center;
+      }
+
+      .session-actions {
+        display: flex;
+        gap: 10px;
+      }
+
+      .session-actions button {
+        padding: 5px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+
+      .chart-container {
+        background: var(--bg-secondary);
+        border-radius: 8px;
+        padding: 15px;
+        margin: 20px 0;
+        box-shadow: 0 2px 8px var(--shadow-color);
+        height: 300px;
+      }
+
+      .chart-container canvas {
+        width: 100% !important;
+        height: 100% !important;
+      }
+    </style>
+    <script>
+      /********** LIVE EYE TRACKING SECTION **********/
+      let recordedData = [];
+      let tracking = false;
+      let lastUpdate = 0;
+      let calibrationAttempts = 0;
+      let isCalibrating = false;
+      let dataCollectionReady = false;
+      let lastDataPoint = null;
+      const UPDATE_INTERVAL = 50; // ms
+      const MAX_RECORDED_POINTS = 10000;
+      const MAX_CALIBRATION_ATTEMPTS = 3;
+      const CALIBRATION_TIMEOUT = 30000; // 30 seconds
+      const MIN_DATA_INTERVAL = 16; // Minimum interval between data points (ms)
+      const DATA_QUALITY_THRESHOLD = 0.6; // Minimum confidence threshold
+
+      // Add database handling code after the existing variables
+      const DB_NAME = 'EyeTrackingDB';
+      const DB_VERSION = 1;
+      const STORE_NAME = 'sessions';
+      let db;
+
+      // Initialize database
+      function initDB() {
+        return new Promise(function(resolve, reject) {
+          const request = indexedDB.open(DB_NAME, DB_VERSION);
           
-          const loadAPI = async () => {
-            try {
-              await ensureGazeCloudLoaded();
-              logMessage("GazeCloud API script loaded successfully", 'success');
-              
-              // Wait a bit for the API to be fully initialized
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              
-              if (typeof GazeCloudAPI === 'undefined') {
-                throw new Error('GazeCloud API not available after loading');
-              }
-
-              await initializeGazeCloudAPI();
-              resolve();
-            } catch (error) {
-              elapsedTime += checkInterval;
-              
-              if (elapsedTime >= maxWaitTime) {
-                const timeoutError = new Error('Timeout waiting for GazeCloud API to load');
-                logMessage(timeoutError.message, 'error');
-                reject(timeoutError);
-                return;
-              }
-
-              logMessage(`Retrying API load... (${Math.round(elapsedTime / 1000)}s elapsed)`, 'warning');
-              setTimeout(loadAPI, checkInterval);
+          request.onerror = function(event) {
+            logMessage("Database error: " + event.target.error, 'error');
+            reject(event.target.error);
+          }; // Fixed missing closing brace
+          
+          request.onsuccess = function(event) {
+            db = event.target.result;
+            logMessage("Database initialized successfully", 'success');
+            resolve(db);
+          };
+          
+          request.onupgradeneeded = function(event) {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+              store.createIndex('timestamp', 'timestamp', { unique: false });
+              store.createIndex('duration', 'duration', { unique: false });
+              logMessage("Database structure created", 'info');
             }
           };
+        });
+      }
 
-          loadAPI();
-        } catch (error) {
-          console.error('Error in waitForGazeCloud:', error);
-          logMessage('Failed to load GazeCloud API: ' + error.message, 'error');
-          reject(error);
-        }
-      });
-    }
-
-    // Update the initializeGazeCloudAPI function
-    function initializeGazeCloudAPI() {
-      return new Promise((resolve, reject) => {
-        try {
-          if (typeof GazeCloudAPI === 'undefined') {
-            reject(new Error('GazeCloud API not found'));
+      // Save session data to database
+      function saveSessionToDB(sessionData) {
+        return new Promise((resolve, reject) => {
+          if (!db) {
+            reject(new Error("Database not initialized"));
             return;
           }
 
-          // Configure GazeCloud API settings for public access
-          // Note: Not setting APIKey will use the default public "AppKeyDemo"
-          GazeCloudAPI.UseClickRecalibration = true;
-          GazeCloudAPI.ShowVideo = true;
-          GazeCloudAPI.Protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const transaction = db.transaction([STORE_NAME], 'readwrite');
+          const store = transaction.objectStore(STORE_NAME);
+          
+          const session = {
+            timestamp: new Date().toISOString(),
+            duration: sessionData.length > 0 ? 
+              (sessionData[sessionData.length - 1].timestamp - sessionData[0].timestamp) / 1000 : 0,
+            dataPoints: sessionData.length,
+            averageConfidence: mean(sessionData.map(d => d.confidence || 0)),
+            data: sessionData
+          };
 
-          // Setup callbacks in the order specified by the API
+          const request = store.add(session);
+          
+          request.onsuccess = () => {
+            logMessage(`Session saved to database (${session.dataPoints} points)`, 'success');
+            resolve(request.result);
+          };
+          
+          request.onerror = () => {
+            logMessage("Error saving session to database", 'error');
+            reject(request.error);
+          };
+        });
+      }
+
+      // Load sessions from database
+      function loadSessions() {
+        return new Promise((resolve, reject) => {
+          if (!db) {
+            reject(new Error("Database not initialized"));
+            return;
+          }
+
+          const transaction = db.transaction([STORE_NAME], 'readonly');
+          const store = transaction.objectStore(STORE_NAME);
+          const request = store.getAll();
+
+          request.onsuccess = () => {
+            const sessions = request.result;
+            updateSessionsList(sessions);
+            resolve(sessions);
+          };
+
+          request.onerror = () => {
+            logMessage("Error loading sessions from database", 'error');
+            reject(request.error);
+          };
+        });
+      }
+
+      // Update sessions list in UI
+      function updateSessionsList(sessions) {
+        const sessionsList = document.getElementById('sessionsList');
+        if (!sessionsList) return;
+
+        sessionsList.innerHTML = '';
+        sessions.forEach(session => {
+          const sessionElement = document.createElement('div');
+          sessionElement.className = 'session-item';
+          sessionElement.innerHTML = `
+            <div class="session-info">
+              <strong>Session ${session.id}</strong>
+              <span>Date: ${new Date(session.timestamp).toLocaleString()}</span>
+              <span>Duration: ${session.duration.toFixed(1)}s</span>
+              <span>Points: ${session.dataPoints}</span>
+              <span>Confidence: ${(session.averageConfidence * 100).toFixed(1)}%</span>
+            </div>
+            <div class="session-actions">
+              <button onclick="loadSessionData(${session.id})">View</button>
+              <button onclick="exportSessionData(${session.id})">Export</button>
+              <button onclick="deleteSession(${session.id})">Delete</button>
+            </div>
+          `;
+          sessionsList.appendChild(sessionElement);
+        });
+      }
+
+      // Load specific session data
+      function loadSessionData(sessionId) {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(sessionId);
+
+        request.onsuccess = () => {
+          const session = request.result;
+          if (session) {
+            // Clear any existing stats container
+            const existingStats = document.querySelector('.stats-container');
+            if (existingStats) {
+              existingStats.remove();
+            }
+
+            // Update charts with session data
+            createEyeMovementChart(session.data);
+            createPupilDilationChart(session.data);
+            createHeadMovementChart(session.data);
+            
+            // Update stats
+            const stats = computeBasicStats(session.data);
+            if (stats) {
+              updateBasicStats(stats);
+            }
+
+            logMessage(`Loaded session ${sessionId} data (${session.data.length} points)`, 'success');
+            
+            // Scroll to the analytics section
+            document.querySelector('.chart-container').scrollIntoView({ 
+              behavior: 'smooth', 
+              block: 'start' 
+            });
+          }
+        };
+
+        request.onerror = () => {
+          logMessage(`Error loading session ${sessionId}`, 'error');
+        };
+      }
+
+      // Export specific session data
+      function exportSessionData(sessionId) {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(sessionId);
+
+        request.onsuccess = () => {
+          const session = request.result;
+          if (session) {
+            const csvContent = "data:text/csv;charset=utf-8,";
+            // Add headers
+            csvContent += "timestamp,x,y,state,confidence,pupilD,HeadX,HeadY,HeadZ,HeadYaw,HeadPitch,HeadRoll\n";
+            
+            // Add data rows
+            session.data.forEach(data => {
+              const row = [
+                data.timestamp,
+                data.x || '',
+                data.y || '',
+                data.state || '',
+                data.confidence || '',
+                data.pupilD || '',
+                data.HeadX || '',
+                data.HeadY || '',
+                data.HeadZ || '',
+                data.HeadYaw || '',
+                data.HeadPitch || '',
+                data.HeadRoll || ''
+              ].join(',');
+              csvContent += row + "\n";
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `eye_tracking_session_${sessionId}_${new Date().toISOString()}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            logMessage(`Exported session ${sessionId} data`, 'success');
+          }
+        };
+
+        request.onerror = () => {
+          logMessage(`Error exporting session ${sessionId}`, 'error');
+        };
+      }
+
+      // Delete specific session
+      function deleteSession(sessionId) {
+        if (!confirm('Are you sure you want to delete this session?')) return;
+
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.delete(sessionId);
+
+        request.onsuccess = () => {
+          logMessage(`Deleted session ${sessionId}`, 'success');
+          loadSessions(); // Refresh the sessions list
+        };
+
+        request.onerror = () => {
+          logMessage(`Error deleting session ${sessionId}`, 'error');
+        };
+      }
+
+      // Update UI state
+      function updateUIState(isRecording) {
+        try {
+          const startBtn = document.querySelector('button[onclick="startTracking()"]');
+          const stopBtn = document.querySelector('button[onclick="stopTracking()"]');
+          const exportBtn = document.querySelector('button[onclick="exportCSV()"]');
+          const clearBtn = document.querySelector('button[onclick="clearData()"]');
+          
+          if (startBtn) startBtn.disabled = isRecording;
+          if (stopBtn) stopBtn.disabled = !isRecording;
+          if (exportBtn) exportBtn.disabled = !recordedData.length;
+          if (clearBtn) clearBtn.disabled = !recordedData.length;
+        } catch (error) {
+          console.error("Error updating UI state:", error);
+        }
+      }
+
+      // Enhanced logging with severity levels
+      function logMessage(message, level = 'info') {
+        try {
+          const logDiv = document.getElementById("debugLog");
+          const timestamp = new Date().toLocaleTimeString();
+          const logLevels = {
+            error: '🔴',
+            warning: '🟡',
+            success: '🟢',
+            info: 'ℹ️'
+          };
+          const logEntry = `[${timestamp}] ${logLevels[level] || 'ℹ️'} ${message}\n`;
+          
+          logDiv.textContent += logEntry;
+          logDiv.scrollTop = logDiv.scrollHeight;
+          
+          // Console logging with appropriate methods
+          switch(level) {
+            case 'error':
+              console.error(message);
+              break;
+            case 'warning':
+              console.warn(message);
+              break;
+            default:
+              console.log(message);
+          }
+        } catch (error) {
+          console.error("Error in logMessage:", error);
+        }
+      }
+
+      // Update the live data display with the most recent gaze values
+      function updateLiveData(data) {
+        try {
+          const now = Date.now();
+          if (now - lastUpdate < UPDATE_INTERVAL) return;
+          lastUpdate = now;
+
+          const liveDiv = document.getElementById("liveData");
+          if (!liveDiv) return;
+
+          // Create a more detailed live data display
+          liveDiv.innerHTML = `
+            <div class="live-data-grid">
+              <div class="data-section">
+                <strong>Gaze Data:</strong><br>
+                State: <span class="data-value">${data.state || 'N/A'}</span><br>
+                X: <span class="data-value">${(data.docX || data.x || 0).toFixed(2)}</span><br>
+                Y: <span class="data-value">${(data.docY || data.y || 0).toFixed(2)}</span><br>
+                Confidence: <span class="data-value ${(data.confidence || 0) > DATA_QUALITY_THRESHOLD ? 'good' : 'poor'}">${((data.confidence || 0) * 100).toFixed(1)}%</span>
+              </div>
+              <div class="data-section">
+                <strong>Head Position:</strong><br>
+                X: <span class="data-value">${(data.HeadX || 0).toFixed(2)}</span><br>
+                Y: <span class="data-value">${(data.HeadY || 0).toFixed(2)}</span><br>
+                Z: <span class="data-value">${(data.HeadZ || 0).toFixed(2)}</span>
+              </div>
+              <div class="data-section">
+                <strong>Session Info:</strong><br>
+                Points: <span class="data-value">${recordedData.length}</span><br>
+                Duration: <span class="data-value">${((now - recordedData[0]?.timestamp || now) / 1000).toFixed(1)}s</span><br>
+                Status: <span class="data-value ${isCalibrating ? 'calibrating' : (tracking ? 'recording' : 'idle')}">${isCalibrating ? 'Calibrating...' : (tracking ? 'Recording' : 'Idle')}</span>
+              </div>
+            </div>
+          `;
+        } catch (error) {
+          console.error("Error in updateLiveData:", error);
+        }
+      }
+
+      // Theme management
+      function initializeTheme() {
+        const currentTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        
+        const themeToggle = document.createElement('button');
+        themeToggle.className = 'theme-toggle';
+        themeToggle.innerHTML = currentTheme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode';
+        themeToggle.onclick = toggleTheme;
+        
+        document.querySelector('.header').appendChild(themeToggle);
+      }
+      
+      function toggleTheme() {
+        const currentTheme = document.documentElement.getAttribute('data-theme');
+        const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+        
+        document.documentElement.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        
+        const themeToggle = document.querySelector('.theme-toggle');
+        themeToggle.innerHTML = newTheme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode';
+        
+        // Update chart themes if they exist
+        updateChartThemes();
+      }
+      
+      function updateChartThemes() {
+        const charts = [window.eyeMovementChart, window.pupilDilationChart, window.headMovementChart];
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        
+        charts.forEach(chart => {
+          if (chart && chart.options) {
+            chart.options.scales.x.grid.color = isDark ? '#404040' : '#dddddd';
+            chart.options.scales.y.grid.color = isDark ? '#404040' : '#dddddd';
+            chart.options.scales.x.ticks.color = isDark ? '#cccccc' : '#666666';
+            chart.options.scales.y.ticks.color = isDark ? '#cccccc' : '#666666';
+            chart.update();
+          }
+        });
+      }
+
+      // Add the resetDataStructures function before it's used
+      function resetDataStructures() {
+        try {
+          // Clear recorded data array
+          recordedData = [];
+          
+          // Reset state variables
+          tracking = false;
+          isCalibrating = false;
+          lastUpdate = 0;
+          lastDataPoint = null;
+          
+          // Safely destroy existing charts
+          const charts = {
+            eyeMovementChart: window.eyeMovementChart,
+            pupilDilationChart: window.pupilDilationChart,
+            headMovementChart: window.headMovementChart
+          };
+          
+          for (const [name, chart] of Object.entries(charts)) {
+            if (chart && typeof chart.destroy === 'function') {
+              try {
+                chart.destroy();
+                window[name] = null;
+              } catch (chartError) {
+                console.error(`Error destroying ${name}:`, chartError);
+              }
+            }
+          }
+
+          // Clear canvas contexts
+          ['eyeMovementChart', 'pupilDilationChart', 'headMovementChart'].forEach(canvasId => {
+            const canvas = document.getElementById(canvasId);
+            if (canvas) {
+              const ctx = canvas.getContext('2d');
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+          });
+
+          // Reset UI elements
+          document.getElementById("liveData").innerHTML = "<em>Live gaze data will appear here...</em>";
+          
+          // Update UI state
+          updateUIState(false);
+          
+          logMessage("Data structures reset successfully", 'success');
+        } catch (error) {
+          console.error("Error in resetDataStructures:", error);
+          logMessage("Error resetting data structures: " + error.message, 'error');
+          throw error; // Re-throw to be caught by the calling function
+        }
+      }
+
+      // Add API verification states
+      const API_STATES = {
+        INITIALIZING: 'initializing',
+        CONNECTING: 'connecting',
+        CONNECTED: 'connected',
+        CALIBRATING: 'calibrating',
+        RECORDING: 'recording',
+        ERROR: 'error'
+      };
+      let apiState = API_STATES.INITIALIZING;
+      let calibrationStartTime = 0;
+
+      // Add debug mode and detailed error tracking
+      const DEBUG = true;
+      const ERROR_CODES = {
+        API_NOT_FOUND: 'API_NOT_FOUND',
+        API_LOAD_TIMEOUT: 'API_LOAD_TIMEOUT',
+        WEBSOCKET_ERROR: 'WEBSOCKET_ERROR',
+        CAMERA_DENIED: 'CAMERA_DENIED',
+        INITIALIZATION_ERROR: 'INITIALIZATION_ERROR',
+        CALIBRATION_ERROR: 'CALIBRATION_ERROR',
+        CONNECTION_ERROR: 'CONNECTION_ERROR',
+        RECOVERY_FAILED: 'RECOVERY_FAILED'
+      };
+
+      // Enhanced error logging
+      function debugLog(message, data = null) {
+        if (!DEBUG) return;
+        const timestamp = new Date().toISOString();
+        console.log(`[${timestamp}] Debug:`, message);
+        if (data) console.log('Debug data:', data);
+        logMessage(`🔍 Debug: ${message}`, 'info');
+      }
+
+      // Add at the start of your script section
+      let gazeCloudScriptLoaded = false;
+
+      function handleScriptLoad(scriptName) {
+        console.log(`${scriptName} script loaded successfully`);
+        if (scriptName === 'GazeCloudAPI') {
+          gazeCloudScriptLoaded = true;
+          initializeGazeCloudAPI();
+        }
+      }
+
+      function handleScriptError(scriptName) {
+        console.error(`Failed to load ${scriptName} script`);
+        gazeCloudScriptLoaded = false;
+        
+        const errorMessage = `
+          <div class="calibration-message error">
+            <h3>❌ Script Loading Error</h3>
+            <p>Failed to load ${scriptName} after multiple attempts. Please check:</p>
+            <ol>
+              <li>Your internet connection</li>
+              <li>If you're behind a corporate firewall or VPN</li>
+              <li>If you have any content blockers or ad blockers active</li>
+              <li>If you're using a supported browser (Chrome recommended)</li>
+              <li>If you need to clear your browser cache</li>
+            </ol>
+            <p>Technical Details:</p>
+            <ul>
+              <li>Current URL attempted: ${GAZECLOUD_URLS[currentUrlIndex]}</li>
+              <li>Total attempts made: ${loadAttempts}</li>
+              <li>Browser: ${navigator.userAgent}</li>
+              <li>Protocol: ${window.location.protocol}</li>
+            </ul>
+            <p>Automatic retry will occur in ${CONFIG.RECOVERY_DELAY/1000} seconds...</p>
+          </div>
+        `;
+        
+        document.getElementById("liveData").innerHTML = errorMessage;
+        logMessage(`Failed to load ${scriptName} script (Attempt ${loadAttempts})`, 'error');
+
+        // Attempt recovery
+        setTimeout(() => {
+          loadGazeCloudAPI()
+            .then(() => logMessage('Recovery successful', 'success'))
+            .catch(() => logMessage('Recovery failed', 'error'));
+        }, CONFIG.RECOVERY_DELAY);
+      }
+
+      function setupGazeCloudCallbacks() {
+        if (typeof GazeCloudAPI === 'undefined') {
+          console.error('Cannot setup callbacks - GazeCloudAPI not defined');
+          return false;
+        }
+
+        try {
+          // Setup all required callbacks
+          GazeCloudAPI.OnCalibrationComplete = function() {
+            console.log('Calibration completed successfully');
+            logMessage("✅ Calibration completed!", 'success');
+            isCalibrating = false;
+            tracking = true;
+            dataCollectionReady = true;
+            calibrationAttempts = 0;
+            calibrationStartTime = 0;
+            updateUIState(true);
+          };
+
+          GazeCloudAPI.OnCalibrationFail = function() {
+            console.error('Calibration failed');
+            logMessage("❌ Calibration failed. Please try again.", 'error');
+            isCalibrating = false;
+            tracking = false;
+            dataCollectionReady = false;
+            calibrationAttempts++;
+            calibrationStartTime = 0;
+            updateUIState(false);
+            handleCalibrationFailure();
+          };
+
+          GazeCloudAPI.OnCalibrationStart = function() {
+            console.log('Calibration started');
+            logMessage("🎯 Starting calibration...", 'info');
+            isCalibrating = true;
+            tracking = false;
+            dataCollectionReady = false;
+            calibrationStartTime = Date.now();
+            updateUIState(false);
+          };
+
+          GazeCloudAPI.OnCamDenied = function() {
+            console.error('Camera access denied');
+            handleGazeError({
+              code: 'CAMERA_DENIED',
+              message: "Camera access was denied. Please check your camera permissions and try again."
+            });
+            tracking = false;
+            updateUIState(false);
+          };
+
+          GazeCloudAPI.OnError = function(error) {
+            console.error('GazeCloud API error:', error);
+            
+            let errorMessage = "Unknown error occurred";
+            let errorCode = 'UNKNOWN_ERROR';
+            
+            if (error && typeof error === 'object') {
+              errorMessage = error.message || JSON.stringify(error);
+            } else if (typeof error === 'string') {
+              errorMessage = error;
+            }
+            
+            // Categorize common errors
+            if (errorMessage.toLowerCase().includes('camera')) {
+              errorCode = 'CAMERA_ERROR';
+            } else if (errorMessage.toLowerCase().includes('connection') || 
+                       errorMessage.toLowerCase().includes('websocket')) {
+              errorCode = 'CONNECTION_ERROR';
+            }
+            
+            handleGazeError({
+              code: errorCode,
+              message: errorMessage,
+              details: error
+            });
+            
+            tracking = false;
+            updateUIState(false);
+          };
+
           GazeCloudAPI.OnResult = function(gazeData) {
-            if (!tracking || !dataCollectionReady) return;
+            if (!tracking) return;
             
             try {
               // Process and store gaze data
@@ -1230,7 +1361,7 @@
               // Update live display
               updateLiveData(processedData);
               
-              // Store data point
+              // Store data point in both arrays
               recordedData.push(processedData);
               if (dataStorage.currentSession) {
                 dataStorage.currentSession.gazeData.push(processedData);
@@ -1242,7 +1373,7 @@
                 logMessage("Trimming recorded data to prevent memory issues", 'warning');
               }
 
-              // Update analytics dashboard every 10 data points
+              // Update analytics dashboard every 10 data points to maintain performance
               if (recordedData.length % 10 === 0) {
                 updateCharts();
               }
@@ -1252,698 +1383,828 @@
             }
           };
 
-          GazeCloudAPI.OnCalibrationComplete = function() {
-            logMessage("✅ Calibration completed successfully", 'success');
-            isCalibrating = false;
-            tracking = true;
-            dataCollectionReady = true;
-            calibrationAttempts = 0;
-            calibrationStartTime = 0;
-            updateUIState(true);
-          };
+          return true;
+        } catch (error) {
+          console.error('Error setting up GazeCloud callbacks:', error);
+          return false;
+        }
+      }
 
-          GazeCloudAPI.OnCalibrationFail = function() {
-            logMessage("❌ Calibration failed", 'error');
-            isCalibrating = false;
-            tracking = false;
-            dataCollectionReady = false;
+      // Update waitForGazeCloud function
+      function waitForGazeCloud() {
+        return new Promise(async (resolve, reject) => {
+          try {
+            const maxWaitTime = 20000; // 20 seconds
+            const checkInterval = 100; // Check every 100ms
+            let elapsedTime = 0;
+
+            // First, try to use the existing API instance
+            if (typeof GazeCloudAPI !== 'undefined') {
+              logMessage("GazeCloud API already loaded, initializing...", 'info');
+              try {
+                await initializeGazeCloudAPI();
+                resolve();
+                return;
+              } catch (error) {
+                logMessage("Failed to initialize existing GazeCloud API: " + error.message, 'warning');
+                // Continue to try loading again
+              }
+            }
+
+            // If not available, try to load it
+            logMessage("GazeCloud API not found, attempting to load...", 'info');
+            
+            const loadAPI = async () => {
+              try {
+                await ensureGazeCloudLoaded();
+                logMessage("GazeCloud API script loaded successfully", 'success');
+                
+                // Wait a bit for the API to be fully initialized
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                if (typeof GazeCloudAPI === 'undefined') {
+                  throw new Error('GazeCloud API not available after loading');
+                }
+
+                await initializeGazeCloudAPI();
+                resolve();
+              } catch (error) {
+                elapsedTime += checkInterval;
+                
+                if (elapsedTime >= maxWaitTime) {
+                  const timeoutError = new Error('Timeout waiting for GazeCloud API to load');
+                  logMessage(timeoutError.message, 'error');
+                  reject(timeoutError);
+                  return;
+                }
+
+                logMessage(`Retrying API load... (${Math.round(elapsedTime / 1000)}s elapsed)`, 'warning');
+                setTimeout(loadAPI, checkInterval);
+              }
+            };
+
+            loadAPI();
+          } catch (error) {
+            console.error('Error in waitForGazeCloud:', error);
+            logMessage('Failed to load GazeCloud API: ' + error.message, 'error');
+            reject(error);
+          }
+        });
+      }
+
+      // Update the initializeGazeCloudAPI function
+      function initializeGazeCloudAPI() {
+        return new Promise((resolve, reject) => {
+          try {
+            if (typeof GazeCloudAPI === 'undefined') {
+              reject(new Error('GazeCloud API not found'));
+              return;
+            }
+
+            // Configure GazeCloud API settings for public access
+            // Note: Not setting APIKey will use the default public "AppKeyDemo"
+            GazeCloudAPI.UseClickRecalibration = true;
+            GazeCloudAPI.ShowVideo = true;
+            GazeCloudAPI.Protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+            // Setup callbacks in the order specified by the API
+            GazeCloudAPI.OnResult = function(gazeData) {
+              if (!tracking || !dataCollectionReady) return;
+              
+              try {
+                // Process and store gaze data
+                const processedData = {
+                  timestamp: Date.now(),
+                  x: gazeData.docX,
+                  y: gazeData.docY,
+                  state: gazeData.state,
+                  confidence: gazeData.confidence,
+                  pupilD: gazeData.pupilD,
+                  HeadX: gazeData.HeadX,
+                  HeadY: gazeData.HeadY,
+                  HeadZ: gazeData.HeadZ,
+                  HeadYaw: gazeData.HeadYaw,
+                  HeadPitch: gazeData.HeadPitch,
+                  HeadRoll: gazeData.HeadRoll
+                };
+                
+                // Update live display
+                updateLiveData(processedData);
+                
+                // Store data point
+                recordedData.push(processedData);
+                if (dataStorage.currentSession) {
+                  dataStorage.currentSession.gazeData.push(processedData);
+                }
+
+                // Check data collection limits
+                if (recordedData.length > MAX_RECORDED_POINTS) {
+                  recordedData = recordedData.slice(-MAX_RECORDED_POINTS);
+                  logMessage("Trimming recorded data to prevent memory issues", 'warning');
+                }
+
+                // Update analytics dashboard every 10 data points
+                if (recordedData.length % 10 === 0) {
+                  updateCharts();
+                }
+              } catch (error) {
+                console.error('Error processing gaze data:', error);
+                logMessage("Error processing gaze data: " + error.message, 'error');
+              }
+            };
+
+            GazeCloudAPI.OnCalibrationComplete = function() {
+              logMessage("✅ Calibration completed successfully", 'success');
+              isCalibrating = false;
+              tracking = true;
+              dataCollectionReady = true;
+              calibrationAttempts = 0;
+              calibrationStartTime = 0;
+              updateUIState(true);
+            };
+
+            GazeCloudAPI.OnCalibrationFail = function() {
+              logMessage("❌ Calibration failed", 'error');
+              isCalibrating = false;
+              tracking = false;
+              dataCollectionReady = false;
+              calibrationAttempts++;
+              calibrationStartTime = 0;
+              updateUIState(false);
+              handleCalibrationFailure();
+            };
+
+            GazeCloudAPI.OnStopGazeFlow = function() {
+              logMessage("Eye tracking stopped", 'info');
+              tracking = false;
+              isCalibrating = false;
+              dataCollectionReady = false;
+              updateUIState(false);
+            };
+
+            GazeCloudAPI.OnCamDenied = function() {
+              handleGazeError({
+                code: ERROR_CODES.CAMERA_DENIED,
+                message: "Camera access was denied. Please check your camera permissions."
+              });
+            };
+
+            GazeCloudAPI.OnError = function(error) {
+              handleGazeError({
+                code: ERROR_CODES.INITIALIZATION_ERROR,
+                message: error?.message || "Unknown error occurred",
+                details: error
+              });
+            };
+
+            logMessage("✅ GazeCloud API initialized successfully", 'success');
+            resolve();
+          } catch (error) {
+            reject(new Error('Failed to initialize GazeCloud API: ' + error.message));
+          }
+        });
+      }
+
+      // Add data storage management
+      const dataStorage = {
+        currentSession: null,
+        
+        initializeSession(config) {
+          this.currentSession = {
+            config,
+            gazeData: [],
+            startTime: Date.now()
+          };
+        },
+        
+        getCurrentSession() {
+          return this.currentSession;
+        },
+        
+        clearSession() {
+          this.currentSession = null;
+        }
+      };
+
+      // Update startTracking function
+      async function startTracking() {
+        try {
+          if (tracking) {
+            stopTracking();
+            return;
+          }
+
+          if (calibrationAttempts >= MAX_CALIBRATION_ATTEMPTS) {
+            logMessage(`❌ Too many calibration attempts. Please refresh the page and try again.`, 'error');
+            return;
+          }
+
+          // Reset state
+          resetDataStructures();
+          
+          // Initialize new session
+          dataStorage.initializeSession({
+            participantId: 'P' + Date.now(),
+            isPilot: false
+          });
+
+          apiState = API_STATES.INITIALIZING;
+          logMessage("🎯 Initializing eye tracking system...", 'info');
+
+          // Clear any existing video elements
+          document.querySelectorAll('video').forEach(video => video.remove());
+
+          // Verify HTTPS
+          if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+            throw new Error('Eye tracking requires HTTPS. Redirecting to secure connection...');
+          }
+
+          // Check if GazeCloud API script is loaded
+          if (!gazeCloudScriptLoaded) {
+            logMessage("Loading GazeCloud API script...", 'info');
+          }
+
+          // Wait for GazeCloud API to be available
+          try {
+            await waitForGazeCloud();
+            logMessage("✅ GazeCloud API loaded and initialized", 'success');
+            
+            // Double check API is available and properly initialized
+            if (typeof GazeCloudAPI === 'undefined') {
+              throw new Error("GazeCloud API not found");
+            }
+
+            if (!GazeCloudAPI.StartEyeTracking) {
+              throw new Error("GazeCloud API methods not available");
+            }
+
+            // Start eye tracking
+            logMessage("Starting eye tracking...", 'info');
+            GazeCloudAPI.StartEyeTracking();
             calibrationAttempts++;
-            calibrationStartTime = 0;
-            updateUIState(false);
+            isCalibrating = true;
+            calibrationStartTime = Date.now();
+            
+            logMessage("👀 Starting calibration process...", 'info');
+          } catch (error) {
+            const errorMessage = error.message || "Unknown initialization error";
+            logMessage(`Failed to initialize eye tracking: ${errorMessage}`, 'error');
+            throw error;
+          }
+        } catch (error) {
+          apiState = API_STATES.ERROR;
+          console.error("Error in startTracking:", error);
+          handleGazeError({
+            code: ERROR_CODES.INITIALIZATION_ERROR,
+            message: error.message || "Failed to initialize eye tracking",
+            details: error
+          });
+        }
+      }
+
+      // Update stopTracking function to handle session data
+      function stopTracking() {
+        try {
+          if (!tracking && !isCalibrating) return;
+          
+          GazeCloudAPI.StopEyeTracking();
+          tracking = false;
+          isCalibrating = false;
+          dataCollectionReady = false;
+          calibrationStartTime = 0;
+          
+          // Clean up video elements
+          document.querySelectorAll('video').forEach(video => video.remove());
+          
+          // Save session data to IndexedDB if we have data
+          const session = dataStorage.getCurrentSession();
+          if (session && session.gazeData && session.gazeData.length > 0) {
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            
+            const sessionData = {
+              timestamp: new Date().toISOString(),
+              duration: session.gazeData.length > 0 ? 
+                (session.gazeData[session.gazeData.length - 1].timestamp - session.gazeData[0].timestamp) / 1000 : 0,
+              dataPoints: session.gazeData.length,
+              averageConfidence: mean(session.gazeData.map(d => d.confidence || 0)),
+              data: session.gazeData,
+              config: session.config
+            };
+
+            store.add(sessionData).onsuccess = () => {
+              logMessage("Session data saved successfully", 'success');
+              loadSessions(); // Refresh sessions list
+            };
+          }
+          
+          // Reset data structures
+          resetDataStructures();
+          
+          // Clear current session
+          dataStorage.clearSession();
+          
+          // Update UI
+          updateUIState(false);
+          document.getElementById("liveData").innerHTML = "<em>Live gaze data will appear here...</em>";
+          logMessage("Eye tracking stopped.", 'success');
+        } catch (error) {
+          console.error("Error stopping tracking:", error);
+          logMessage("Error stopping tracking: " + error.message, 'error');
+        }
+      }
+
+      // Monitor calibration timeout
+      setInterval(() => {
+        if (isCalibrating && calibrationStartTime > 0) {
+          const calibrationDuration = Date.now() - calibrationStartTime;
+          if (calibrationDuration > CALIBRATION_TIMEOUT) {
+            logMessage("❌ Calibration timeout reached", 'error');
             handleCalibrationFailure();
+          }
+        }
+      }, 1000);
+
+      // Handle gaze data processing
+      function handleGazeData(GazeData) {
+        try {
+          if (!tracking || !dataCollectionReady) return;
+
+          const processedData = processGazeData(GazeData);
+          if (!processedData) return;
+
+          recordedData.push(processedData);
+          if (recordedData.length > MAX_RECORDED_POINTS) {
+            recordedData = recordedData.slice(-MAX_RECORDED_POINTS);
+            logMessage("Trimming recorded data to prevent memory issues", 'warning');
+          }
+
+          updateLiveData(processedData);
+          
+          if (recordedData.length % 50 === 0) {
+            const avgConfidence = mean(recordedData.slice(-50).map(d => d.confidence || 0));
+            logMessage(
+              `Recording active: ${recordedData.length} points collected | ` +
+              `Recent Quality: ${(avgConfidence * 100).toFixed(1)}% | ` +
+              `Rate: ${(50000 / (Date.now() - lastUpdate)).toFixed(1)} Hz`,
+              avgConfidence > DATA_QUALITY_THRESHOLD ? 'success' : 'warning'
+            );
+          }
+        } catch (error) {
+          console.error("Error processing gaze data:", error);
+          logMessage("Error processing gaze data: " + error.message, 'error');
+        }
+      }
+
+      // Handle calibration failure
+      function handleCalibrationFailure() {
+        isCalibrating = false;
+        tracking = false;
+        dataCollectionReady = false;
+        
+        document.getElementById("liveData").innerHTML = `
+          <div class="calibration-message error">
+            <h3>Calibration Failed</h3>
+            <p>Please ensure:</p>
+            <ul>
+              <li>Your face is well-lit and visible</li>
+              <li>You are in a stable position</li>
+              <li>Your eyes are clearly visible</li>
+              <li>You are looking at the calibration points</li>
+            </ul>
+            <p>Click "Start Tracking" to try again.</p>
+          </div>
+        `;
+        
+        logMessage(`Calibration failed (Attempt ${calibrationAttempts} of ${MAX_CALIBRATION_ATTEMPTS})`, 'error');
+        updateUIState(false);
+      }
+
+      // Enhanced error handling
+      function handleGazeError(error) {
+        try {
+          tracking = false;
+          isCalibrating = false;
+          dataCollectionReady = false;
+
+          const errorDetails = {
+            timestamp: new Date().toISOString(),
+            code: error.code,
+            message: error.message,
+            recoveryAttempt: recoveryAttempts,
+            lastValidDataTimestamp: lastValidData?.timestamp
           };
 
-          GazeCloudAPI.OnStopGazeFlow = function() {
-            logMessage("Eye tracking stopped", 'info');
-            tracking = false;
-            isCalibrating = false;
-            dataCollectionReady = false;
-            updateUIState(false);
+          debugLog('Handling gaze error:', errorDetails);
+
+          // Update UI with detailed error message
+          const errorMessage = `
+            <div class="calibration-message error">
+              <h3>❌ Eye Tracking Error</h3>
+              <p>${error.message}</p>
+              <div class="error-details">
+                <p><strong>Error Code:</strong> ${error.code}</p>
+                <p><strong>Time:</strong> ${errorDetails.timestamp}</p>
+                ${error.details ? `<p><strong>Details:</strong> ${JSON.stringify(error.details)}</p>` : ''}
+              </div>
+              <div class="error-recovery">
+                <p><strong>Troubleshooting Steps:</strong></p>
+                <ol>
+                  ${getErrorRecoverySteps(error.code)}
+                </ol>
+              </div>
+              ${recoveryAttempts < CONFIG.MAX_RECOVERY_ATTEMPTS ? 
+                '<p>Attempting automatic recovery...</p>' : 
+                '<p>Please refresh the page to try again.</p>'}
+            </div>
+          `;
+
+          document.getElementById("liveData").innerHTML = errorMessage;
+          updateUIState(false);
+
+          // Attempt recovery for recoverable errors
+          if (isRecoverableError(error.code)) {
+            attemptRecovery(error);
+          }
+        } catch (e) {
+          console.error("Error in handleGazeError:", e);
+          logMessage("Critical error in error handler: " + e.message, 'error');
+        }
+      }
+
+      // Add data smoothing function
+      function smoothGazeData(data) {
+        if (!data || !Array.isArray(data) || data.length < CONFIG.SMOOTHING_WINDOW) {
+          return data;
+        }
+
+        return data.map((point, index) => {
+          if (index < CONFIG.SMOOTHING_WINDOW - 1) return point;
+
+          const window = data.slice(index - CONFIG.SMOOTHING_WINDOW + 1, index + 1);
+          return {
+            ...point,
+            x: window.reduce((sum, p) => sum + p.x, 0) / CONFIG.SMOOTHING_WINDOW,
+            y: window.reduce((sum, p) => sum + p.y, 0) / CONFIG.SMOOTHING_WINDOW
+          };
+        });
+      }
+
+      // Enhanced error recovery
+      async function attemptRecovery(error) {
+        if (recoveryAttempts >= CONFIG.MAX_RECOVERY_ATTEMPTS) {
+          handleGazeError({
+            code: ERROR_CODES.RECOVERY_FAILED,
+            message: "Maximum recovery attempts reached. Please refresh the page."
+          });
+          return false;
+        }
+
+        recoveryAttempts++;
+        logMessage(`Attempting recovery (${recoveryAttempts}/${CONFIG.MAX_RECOVERY_ATTEMPTS})...`, 'warning');
+
+        try {
+          // Stop current tracking if active
+          if (typeof GazeCloudAPI !== 'undefined' && tracking) {
+            GazeCloudAPI.StopEyeTracking();
+          }
+
+          // Wait for recovery delay
+          await new Promise(resolve => setTimeout(resolve, CONFIG.RECOVERY_DELAY));
+
+          // Attempt to reinitialize
+          const success = await initializeGazeTracking();
+          if (success) {
+            recoveryAttempts = 0;
+            logMessage("Recovery successful!", 'success');
+            return true;
+          }
+        } catch (recoveryError) {
+          console.error("Recovery attempt failed:", recoveryError);
+        }
+
+        return false;
+      }
+
+      // Enhanced data processing
+      function processGazeData(gazeData) {
+        try {
+          const currentTime = Date.now();
+          
+          // Basic validation
+          if (!gazeData || typeof gazeData !== 'object') {
+            throw new Error("Invalid gaze data format");
+          }
+
+          // Process and validate coordinates
+          const processedData = {
+            timestamp: currentTime,
+            x: gazeData.docX !== undefined ? gazeData.docX : gazeData.x,
+            y: gazeData.docY !== undefined ? gazeData.docY : gazeData.y,
+            state: gazeData.state,
+            confidence: gazeData.confidence || 0,
+            pupilD: gazeData.pupilD,
+            HeadX: gazeData.HeadX,
+            HeadY: gazeData.HeadY,
+            HeadZ: gazeData.HeadZ,
+            HeadYaw: gazeData.HeadYaw,
+            HeadPitch: gazeData.HeadPitch,
+            HeadRoll: gazeData.HeadRoll
           };
 
+          // Validate data quality
+          if (processedData.confidence < CONFIG.MIN_CONFIDENCE) {
+            if (lastValidData) {
+              logMessage("Low confidence data point detected, using last valid data", 'warning');
+              return lastValidData;
+            }
+            return null;
+          }
+
+          lastValidData = processedData;
+          return processedData;
+        } catch (error) {
+          console.error("Error processing gaze data:", error);
+          logMessage("Error processing gaze data: " + error.message, 'error');
+          return lastValidData || null;
+        }
+      }
+
+      // Export the recorded gaze data as a CSV file
+      function exportCSV() {
+        try {
+          if (recordedData.length === 0) {
+            logMessage("No data recorded to export.");
+            return;
+          }
+          let csvContent = "data:text/csv;charset=utf-8,";
+          csvContent += "timestamp,x,y,state,confidence,pupilD,HeadX,HeadY,HeadZ,HeadYaw,HeadPitch,HeadRoll\n";
+          
+          recordedData.forEach(function(data) {
+            const timestamp = data.time || data.timestamp || '';
+            const x = data.docX !== undefined ? data.docX : data.x || '';
+            const y = data.docY !== undefined ? data.docY : data.y || '';
+            const state = data.state || '';
+            const confidence = data.confidence || '';
+            const pupilD = data.pupilD || '';
+            const HeadX = data.HeadX || '';
+            const HeadY = data.HeadY || '';
+            const HeadZ = data.HeadZ || '';
+            const HeadYaw = data.HeadYaw || '';
+            const HeadPitch = data.HeadPitch || '';
+            const HeadRoll = data.HeadRoll || '';
+            
+            csvContent += `${timestamp},${x},${y},${state},${confidence},${pupilD},${HeadX},${HeadY},${HeadZ},${HeadYaw},${HeadPitch},${HeadRoll}\n`;
+          });
+
+          const encodedUri = encodeURI(csvContent);
+          const link = document.createElement("a");
+          link.setAttribute("href", encodedUri);
+          link.setAttribute("download", "gaze_data_" + Date.now() + ".csv");
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          logMessage("CSV export completed.");
+        } catch (error) {
+          console.error("Error in exportCSV:", error);
+          logMessage("Failed to export CSV: " + error.message);
+        }
+      }
+
+      // Clear recorded data and reset the live display
+      function clearData() {
+        try {
+          recordedData = [];
+          document.getElementById("liveData").innerHTML = "<em>Live gaze data will appear here...</em>";
+          logMessage("Cleared recorded data.");
+        } catch (error) {
+          console.error("Error in clearData:", error);
+        }
+      }
+
+      // Statistical utility functions
+      function mean(arr) {
+        if (!arr || arr.length === 0) return 0;
+        return arr.reduce((a, b) => a + b, 0) / arr.length;
+      }
+
+      function standardDeviation(arr) {
+        if (!arr || arr.length === 0) return 0;
+        const avg = mean(arr);
+        const squareDiffs = arr.map(value => Math.pow(value - avg, 2));
+        return Math.sqrt(mean(squareDiffs));
+      }
+
+      /********** CSV ANALYSIS DASHBOARD SECTION **********/
+      // Compute basic statistics from CSV data
+      function computeBasicStats(data) {
+        try {
+          const validConfidence = data.filter(d => d.confidence !== undefined && d.confidence !== null && d.confidence !== '');
+          const validPupilData = data.filter(d => d.pupilD !== undefined && d.pupilD !== null && d.pupilD !== '');
+          const validHeadData = data.filter(d => 
+            d.HeadX !== undefined && d.HeadY !== undefined && d.HeadZ !== undefined &&
+            d.HeadX !== null && d.HeadY !== null && d.HeadZ !== null &&
+            d.HeadX !== '' && d.HeadY !== '' && d.HeadZ !== ''
+          );
+
+          let avgConfidence = validConfidence.length ? (mean(validConfidence.map(d => d.confidence)) * 100).toFixed(1) + '%' : 'N/A';
+          let pupilMean = validPupilData.length ? mean(validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
+          let pupilMin = validPupilData.length ? Math.min(...validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
+          let pupilMax = validPupilData.length ? Math.max(...validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
+          let pupilStdDev = validPupilData.length ? standardDeviation(validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
+
+          let headXMean = validHeadData.length ? mean(validHeadData.map(d => d.HeadX)).toFixed(1) : 'N/A';
+          let headYMean = validHeadData.length ? mean(validHeadData.map(d => d.HeadY)).toFixed(1) : 'N/A';
+          let headZMean = validHeadData.length ? mean(validHeadData.map(d => d.HeadZ)).toFixed(1) : 'N/A';
+
+          return {
+            avgConfidence,
+            pupilMean,
+            pupilMin,
+            pupilMax,
+            pupilStdDev,
+            headXMean,
+            headYMean,
+            headZMean
+          };
+        } catch (error) {
+          console.error("Error computing basic stats:", error);
+          return null;
+        }
+      }
+
+      // Update GazeCloud API callbacks with proper error handling
+      function initializeGazeTracking() {
+        try {
+          // Configure GazeCloud API settings
+          GazeCloudAPI.APIKey = ""; // Empty API key for public access
+            GazeCloudAPI.CalibrationType = 5;
+            GazeCloudAPI.ShowVideo = true;
+            GazeCloudAPI.UseClickRecalibration = true;
+            GazeCloudAPI.Debug = true;
+            GazeCloudAPI.CrossOrigin = true;
+            GazeCloudAPI.Protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+          // Set up error handling callbacks
           GazeCloudAPI.OnCamDenied = function() {
             handleGazeError({
               code: ERROR_CODES.CAMERA_DENIED,
-              message: "Camera access was denied. Please check your camera permissions."
+              message: "Camera access was denied by the browser or user."
             });
           };
 
           GazeCloudAPI.OnError = function(error) {
+            debugLog('GazeCloud API error received:', error);
+            
+            let errorMessage = "Unknown GazeCloud API Error";
+            let errorCode = ERROR_CODES.INITIALIZATION_ERROR;
+            
+            try {
+              // Handle different error formats
+              if (typeof error === 'object') {
+                if (error instanceof Error) {
+                  errorMessage = error.message;
+                } else if (error !== null) {
+                  errorMessage = JSON.stringify(error, Object.getOwnPropertyNames(error));
+                }
+              } else if (typeof error === 'string') {
+                errorMessage = error;
+              }
+              
+              // Determine error type
+              if (errorMessage.toLowerCase().includes('camera')) {
+                errorCode = ERROR_CODES.CAMERA_DENIED;
+              } else if (errorMessage.toLowerCase().includes('connection') || 
+                        errorMessage.toLowerCase().includes('websocket')) {
+                errorCode = ERROR_CODES.CONNECTION_ERROR;
+              }
+              
+              debugLog('Processed error:', { code: errorCode, message: errorMessage });
+            } catch (e) {
+              console.error('Error processing GazeCloud error:', e);
+              errorMessage = "Failed to process error details";
+            }
+            
             handleGazeError({
-              code: ERROR_CODES.INITIALIZATION_ERROR,
-              message: error?.message || "Unknown error occurred",
-              details: error
+              code: errorCode,
+              message: `GazeCloud API Error: ${errorMessage}`,
+              originalError: error
             });
           };
 
-          logMessage("✅ GazeCloud API initialized successfully", 'success');
-          resolve();
-        } catch (error) {
-          reject(new Error('Failed to initialize GazeCloud API: ' + error.message));
-        }
-      });
-    }
-
-    // Add data storage management
-    const dataStorage = {
-      currentSession: null,
-      
-      initializeSession(config) {
-        this.currentSession = {
-          config,
-          gazeData: [],
-          startTime: Date.now()
-        };
-      },
-      
-      getCurrentSession() {
-        return this.currentSession;
-      },
-      
-      clearSession() {
-        this.currentSession = null;
-      }
-    };
-
-    // Update startTracking function
-    async function startTracking() {
-      try {
-        if (tracking) {
-          stopTracking();
-          return;
-        }
-
-        if (calibrationAttempts >= MAX_CALIBRATION_ATTEMPTS) {
-          logMessage(`❌ Too many calibration attempts. Please refresh the page and try again.`, 'error');
-          return;
-        }
-
-        // Reset state
-        resetDataStructures();
-        
-        // Initialize new session
-        dataStorage.initializeSession({
-          participantId: 'P' + Date.now(),
-          isPilot: false
-        });
-
-        apiState = API_STATES.INITIALIZING;
-        logMessage("🎯 Initializing eye tracking system...", 'info');
-
-        // Clear any existing video elements
-        document.querySelectorAll('video').forEach(video => video.remove());
-
-        // Verify HTTPS
-        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-          throw new Error('Eye tracking requires HTTPS. Redirecting to secure connection...');
-        }
-
-        // Check if GazeCloud API script is loaded
-        if (!gazeCloudScriptLoaded) {
-          logMessage("Loading GazeCloud API script...", 'info');
-        }
-
-        // Wait for GazeCloud API to be available
-        try {
-          await waitForGazeCloud();
-          logMessage("✅ GazeCloud API loaded and initialized", 'success');
-          
-          // Double check API is available and properly initialized
-          if (typeof GazeCloudAPI === 'undefined') {
-            throw new Error("GazeCloud API not found");
-          }
-
-          if (!GazeCloudAPI.StartEyeTracking) {
-            throw new Error("GazeCloud API methods not available");
-          }
-
-          // Start eye tracking
-          logMessage("Starting eye tracking...", 'info');
-          GazeCloudAPI.StartEyeTracking();
-          calibrationAttempts++;
-          isCalibrating = true;
-          calibrationStartTime = Date.now();
-          
-          logMessage("👀 Starting calibration process...", 'info');
-        } catch (error) {
-          const errorMessage = error.message || "Unknown initialization error";
-          logMessage(`Failed to initialize eye tracking: ${errorMessage}`, 'error');
-          throw error;
-        }
-      } catch (error) {
-        apiState = API_STATES.ERROR;
-        console.error("Error in startTracking:", error);
-        handleGazeError({
-          code: ERROR_CODES.INITIALIZATION_ERROR,
-          message: error.message || "Failed to initialize eye tracking",
-          details: error
-        });
-      }
-    }
-
-    // Update stopTracking function to handle session data
-    function stopTracking() {
-      try {
-        if (!tracking && !isCalibrating) return;
-        
-        GazeCloudAPI.StopEyeTracking();
-        tracking = false;
-        isCalibrating = false;
-        dataCollectionReady = false;
-        calibrationStartTime = 0;
-        
-        // Clean up video elements
-        document.querySelectorAll('video').forEach(video => video.remove());
-        
-        // Save session data to IndexedDB if we have data
-        const session = dataStorage.getCurrentSession();
-        if (session && session.gazeData && session.gazeData.length > 0) {
-          const transaction = db.transaction([STORE_NAME], 'readwrite');
-          const store = transaction.objectStore(STORE_NAME);
-          
-          const sessionData = {
-            timestamp: new Date().toISOString(),
-            duration: session.gazeData.length > 0 ? 
-              (session.gazeData[session.gazeData.length - 1].timestamp - session.gazeData[0].timestamp) / 1000 : 0,
-            dataPoints: session.gazeData.length,
-            averageConfidence: mean(session.gazeData.map(d => d.confidence || 0)),
-            data: session.gazeData,
-            config: session.config
+          GazeCloudAPI.OnCalibrationFail = function() {
+            handleCalibrationFailure();
           };
 
-          store.add(sessionData).onsuccess = () => {
-            logMessage("Session data saved successfully", 'success');
-            loadSessions(); // Refresh sessions list
-          };
-        }
-        
-        // Reset data structures
-        resetDataStructures();
-        
-        // Clear current session
-        dataStorage.clearSession();
-        
-        // Update UI
-        updateUIState(false);
-        document.getElementById("liveData").innerHTML = "<em>Live gaze data will appear here...</em>";
-        logMessage("Eye tracking stopped.", 'success');
-      } catch (error) {
-        console.error("Error stopping tracking:", error);
-        logMessage("Error stopping tracking: " + error.message, 'error');
-      }
-    }
-
-    // Monitor calibration timeout
-    setInterval(() => {
-      if (isCalibrating && calibrationStartTime > 0) {
-        const calibrationDuration = Date.now() - calibrationStartTime;
-        if (calibrationDuration > CALIBRATION_TIMEOUT) {
-          logMessage("❌ Calibration timeout reached", 'error');
-          handleCalibrationFailure();
-        }
-      }
-    }, 1000);
-
-    // Handle gaze data processing
-    function handleGazeData(GazeData) {
-      try {
-        if (!tracking || !dataCollectionReady) return;
-
-        const processedData = processGazeData(GazeData);
-        if (!processedData) return;
-
-        recordedData.push(processedData);
-        if (recordedData.length > MAX_RECORDED_POINTS) {
-          recordedData = recordedData.slice(-MAX_RECORDED_POINTS);
-          logMessage("Trimming recorded data to prevent memory issues", 'warning');
-        }
-
-        updateLiveData(processedData);
-        
-        if (recordedData.length % 50 === 0) {
-          const avgConfidence = mean(recordedData.slice(-50).map(d => d.confidence || 0));
-          logMessage(
-            `Recording active: ${recordedData.length} points collected | ` +
-            `Recent Quality: ${(avgConfidence * 100).toFixed(1)}% | ` +
-            `Rate: ${(50000 / (Date.now() - lastUpdate)).toFixed(1)} Hz`,
-            avgConfidence > DATA_QUALITY_THRESHOLD ? 'success' : 'warning'
-          );
-        }
-      } catch (error) {
-        console.error("Error processing gaze data:", error);
-        logMessage("Error processing gaze data: " + error.message, 'error');
-      }
-    }
-
-    // Handle calibration failure
-    function handleCalibrationFailure() {
-      isCalibrating = false;
-      tracking = false;
-      dataCollectionReady = false;
-      
-      document.getElementById("liveData").innerHTML = `
-        <div class="calibration-message error">
-          <h3>Calibration Failed</h3>
-          <p>Please ensure:</p>
-          <ul>
-            <li>Your face is well-lit and visible</li>
-            <li>You are in a stable position</li>
-            <li>Your eyes are clearly visible</li>
-            <li>You are looking at the calibration points</li>
-          </ul>
-          <p>Click "Start Tracking" to try again.</p>
-        </div>
-      `;
-      
-      logMessage(`Calibration failed (Attempt ${calibrationAttempts} of ${MAX_CALIBRATION_ATTEMPTS})`, 'error');
-      updateUIState(false);
-    }
-
-    // Enhanced error handling
-    function handleGazeError(error) {
-      try {
-        tracking = false;
-        isCalibrating = false;
-        dataCollectionReady = false;
-
-        const errorDetails = {
-          timestamp: new Date().toISOString(),
-          code: error.code,
-          message: error.message,
-          recoveryAttempt: recoveryAttempts,
-          lastValidDataTimestamp: lastValidData?.timestamp
-        };
-
-        debugLog('Handling gaze error:', errorDetails);
-
-        // Update UI with detailed error message
-        const errorMessage = `
-          <div class="calibration-message error">
-            <h3>❌ Eye Tracking Error</h3>
-            <p>${error.message}</p>
-            <div class="error-details">
-              <p><strong>Error Code:</strong> ${error.code}</p>
-              <p><strong>Time:</strong> ${errorDetails.timestamp}</p>
-              ${error.details ? `<p><strong>Details:</strong> ${JSON.stringify(error.details)}</p>` : ''}
-            </div>
-            <div class="error-recovery">
-              <p><strong>Troubleshooting Steps:</strong></p>
-              <ol>
-                ${getErrorRecoverySteps(error.code)}
-              </ol>
-            </div>
-            ${recoveryAttempts < CONFIG.MAX_RECOVERY_ATTEMPTS ? 
-              '<p>Attempting automatic recovery...</p>' : 
-              '<p>Please refresh the page to try again.</p>'}
-          </div>
-        `;
-
-        document.getElementById("liveData").innerHTML = errorMessage;
-        updateUIState(false);
-
-        // Attempt recovery for recoverable errors
-        if (isRecoverableError(error.code)) {
-          attemptRecovery(error);
-        }
-      } catch (e) {
-        console.error("Error in handleGazeError:", e);
-        logMessage("Critical error in error handler: " + e.message, 'error');
-      }
-    }
-
-    // Add data smoothing function
-    function smoothGazeData(data) {
-      if (!data || !Array.isArray(data) || data.length < CONFIG.SMOOTHING_WINDOW) {
-        return data;
-      }
-
-      return data.map((point, index) => {
-        if (index < CONFIG.SMOOTHING_WINDOW - 1) return point;
-
-        const window = data.slice(index - CONFIG.SMOOTHING_WINDOW + 1, index + 1);
-        return {
-          ...point,
-          x: window.reduce((sum, p) => sum + p.x, 0) / CONFIG.SMOOTHING_WINDOW,
-          y: window.reduce((sum, p) => sum + p.y, 0) / CONFIG.SMOOTHING_WINDOW
-        };
-      });
-    }
-
-    // Enhanced error recovery
-    async function attemptRecovery(error) {
-      if (recoveryAttempts >= CONFIG.MAX_RECOVERY_ATTEMPTS) {
-        handleGazeError({
-          code: ERROR_CODES.RECOVERY_FAILED,
-          message: "Maximum recovery attempts reached. Please refresh the page."
-        });
-        return false;
-      }
-
-      recoveryAttempts++;
-      logMessage(`Attempting recovery (${recoveryAttempts}/${CONFIG.MAX_RECOVERY_ATTEMPTS})...`, 'warning');
-
-      try {
-        // Stop current tracking if active
-        if (typeof GazeCloudAPI !== 'undefined' && tracking) {
-          GazeCloudAPI.StopEyeTracking();
-        }
-
-        // Wait for recovery delay
-        await new Promise(resolve => setTimeout(resolve, CONFIG.RECOVERY_DELAY));
-
-        // Attempt to reinitialize
-        const success = await initializeGazeTracking();
-        if (success) {
-          recoveryAttempts = 0;
-          logMessage("Recovery successful!", 'success');
           return true;
-        }
-      } catch (recoveryError) {
-        console.error("Recovery attempt failed:", recoveryError);
-      }
-
-      return false;
-    }
-
-    // Enhanced data processing
-    function processGazeData(gazeData) {
-      try {
-        const currentTime = Date.now();
-        
-        // Basic validation
-        if (!gazeData || typeof gazeData !== 'object') {
-          throw new Error("Invalid gaze data format");
-        }
-
-        // Process and validate coordinates
-        const processedData = {
-          timestamp: currentTime,
-          x: gazeData.docX !== undefined ? gazeData.docX : gazeData.x,
-          y: gazeData.docY !== undefined ? gazeData.docY : gazeData.y,
-          state: gazeData.state,
-          confidence: gazeData.confidence || 0,
-          pupilD: gazeData.pupilD,
-          HeadX: gazeData.HeadX,
-          HeadY: gazeData.HeadY,
-          HeadZ: gazeData.HeadZ,
-          HeadYaw: gazeData.HeadYaw,
-          HeadPitch: gazeData.HeadPitch,
-          HeadRoll: gazeData.HeadRoll
-        };
-
-        // Validate data quality
-        if (processedData.confidence < CONFIG.MIN_CONFIDENCE) {
-          if (lastValidData) {
-            logMessage("Low confidence data point detected, using last valid data", 'warning');
-            return lastValidData;
-          }
-          return null;
-        }
-
-        lastValidData = processedData;
-        return processedData;
-      } catch (error) {
-        console.error("Error processing gaze data:", error);
-        logMessage("Error processing gaze data: " + error.message, 'error');
-        return lastValidData || null;
-      }
-    }
-
-    // Export the recorded gaze data as a CSV file
-    function exportCSV() {
-      try {
-        if (recordedData.length === 0) {
-          logMessage("No data recorded to export.");
-            return;
-          }
-        let csvContent = "data:text/csv;charset=utf-8,";
-        csvContent += "timestamp,x,y,state,confidence,pupilD,HeadX,HeadY,HeadZ,HeadYaw,HeadPitch,HeadRoll\n";
-        
-        recordedData.forEach(function(data) {
-          const timestamp = data.time || data.timestamp || '';
-          const x = data.docX !== undefined ? data.docX : data.x || '';
-          const y = data.docY !== undefined ? data.docY : data.y || '';
-          const state = data.state || '';
-          const confidence = data.confidence || '';
-          const pupilD = data.pupilD || '';
-          const HeadX = data.HeadX || '';
-          const HeadY = data.HeadY || '';
-          const HeadZ = data.HeadZ || '';
-          const HeadYaw = data.HeadYaw || '';
-          const HeadPitch = data.HeadPitch || '';
-          const HeadRoll = data.HeadRoll || '';
-          
-          csvContent += `${timestamp},${x},${y},${state},${confidence},${pupilD},${HeadX},${HeadY},${HeadZ},${HeadYaw},${HeadPitch},${HeadRoll}\n`;
-        });
-
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "gaze_data_" + Date.now() + ".csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        logMessage("CSV export completed.");
-      } catch (error) {
-        console.error("Error in exportCSV:", error);
-        logMessage("Failed to export CSV: " + error.message);
-      }
-    }
-
-    // Clear recorded data and reset the live display
-    function clearData() {
-      try {
-        recordedData = [];
-        document.getElementById("liveData").innerHTML = "<em>Live gaze data will appear here...</em>";
-        logMessage("Cleared recorded data.");
-      } catch (error) {
-        console.error("Error in clearData:", error);
-      }
-    }
-
-    // Statistical utility functions
-    function mean(arr) {
-      if (!arr || arr.length === 0) return 0;
-      return arr.reduce((a, b) => a + b, 0) / arr.length;
-    }
-
-    function standardDeviation(arr) {
-      if (!arr || arr.length === 0) return 0;
-      const avg = mean(arr);
-      const squareDiffs = arr.map(value => Math.pow(value - avg, 2));
-      return Math.sqrt(mean(squareDiffs));
-    }
-
-    /********** CSV ANALYSIS DASHBOARD SECTION **********/
-    // Compute basic statistics from CSV data
-    function computeBasicStats(data) {
-      try {
-        const validConfidence = data.filter(d => d.confidence !== undefined && d.confidence !== null && d.confidence !== '');
-        const validPupilData = data.filter(d => d.pupilD !== undefined && d.pupilD !== null && d.pupilD !== '');
-        const validHeadData = data.filter(d => 
-          d.HeadX !== undefined && d.HeadY !== undefined && d.HeadZ !== undefined &&
-          d.HeadX !== null && d.HeadY !== null && d.HeadZ !== null &&
-          d.HeadX !== '' && d.HeadY !== '' && d.HeadZ !== ''
-        );
-
-        let avgConfidence = validConfidence.length ? (mean(validConfidence.map(d => d.confidence)) * 100).toFixed(1) + '%' : 'N/A';
-        let pupilMean = validPupilData.length ? mean(validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
-        let pupilMin = validPupilData.length ? Math.min(...validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
-        let pupilMax = validPupilData.length ? Math.max(...validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
-        let pupilStdDev = validPupilData.length ? standardDeviation(validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
-
-        let headXMean = validHeadData.length ? mean(validHeadData.map(d => d.HeadX)).toFixed(1) : 'N/A';
-        let headYMean = validHeadData.length ? mean(validHeadData.map(d => d.HeadY)).toFixed(1) : 'N/A';
-        let headZMean = validHeadData.length ? mean(validHeadData.map(d => d.HeadZ)).toFixed(1) : 'N/A';
-
-        return {
-          avgConfidence,
-          pupilMean,
-          pupilMin,
-          pupilMax,
-          pupilStdDev,
-          headXMean,
-          headYMean,
-          headZMean
-        };
-      } catch (error) {
-        console.error("Error computing basic stats:", error);
-        return null;
-      }
-    }
-
-    // Update GazeCloud API callbacks with proper error handling
-    function initializeGazeTracking() {
-      try {
-        // Configure GazeCloud API settings
-        GazeCloudAPI.APIKey = ""; // Empty API key for public access
-          GazeCloudAPI.CalibrationType = 5;
-          GazeCloudAPI.ShowVideo = true;
-          GazeCloudAPI.UseClickRecalibration = true;
-          GazeCloudAPI.Debug = true;
-          GazeCloudAPI.CrossOrigin = true;
-          GazeCloudAPI.Protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-
-        // Set up error handling callbacks
-        GazeCloudAPI.OnCamDenied = function() {
+        } catch (error) {
+          console.error("Error initializing gaze tracking:", error);
           handleGazeError({
-            code: ERROR_CODES.CAMERA_DENIED,
-            message: "Camera access was denied by the browser or user."
+            code: ERROR_CODES.INITIALIZATION_ERROR,
+            message: "Failed to initialize eye tracking: " + error.message
           });
-        };
-
-        GazeCloudAPI.OnError = function(error) {
-          debugLog('GazeCloud API error received:', error);
-          
-          let errorMessage = "Unknown GazeCloud API Error";
-          let errorCode = ERROR_CODES.INITIALIZATION_ERROR;
-          
-          try {
-            // Handle different error formats
-            if (typeof error === 'object') {
-              if (error instanceof Error) {
-                errorMessage = error.message;
-              } else if (error !== null) {
-                errorMessage = JSON.stringify(error, Object.getOwnPropertyNames(error));
-              }
-            } else if (typeof error === 'string') {
-              errorMessage = error;
-            }
-            
-            // Determine error type
-            if (errorMessage.toLowerCase().includes('camera')) {
-              errorCode = ERROR_CODES.CAMERA_DENIED;
-            } else if (errorMessage.toLowerCase().includes('connection') || 
-                      errorMessage.toLowerCase().includes('websocket')) {
-              errorCode = ERROR_CODES.CONNECTION_ERROR;
-            }
-            
-            debugLog('Processed error:', { code: errorCode, message: errorMessage });
-          } catch (e) {
-            console.error('Error processing GazeCloud error:', e);
-            errorMessage = "Failed to process error details";
-          }
-          
-          handleGazeError({
-            code: errorCode,
-            message: `GazeCloud API Error: ${errorMessage}`,
-            originalError: error
-          });
-        };
-
-        GazeCloudAPI.OnCalibrationFail = function() {
-          handleCalibrationFailure();
-        };
-
-        return true;
-      } catch (error) {
-        console.error("Error initializing gaze tracking:", error);
-        handleGazeError({
-          code: ERROR_CODES.INITIALIZATION_ERROR,
-          message: "Failed to initialize eye tracking: " + error.message
-        });
-        return false;
-      }
-    }
-
-    // Add chart creation and update functions before the window.onload
-    let eyeMovementChart, pupilDilationChart, headMovementChart;
-
-    function createEyeMovementChart(data) {
-      const ctx = document.getElementById('eyeMovementChart').getContext('2d');
-      if (eyeMovementChart) {
-        eyeMovementChart.destroy();
+          return false;
+        }
       }
 
-      eyeMovementChart = new Chart(ctx, {
-        type: 'scatter',
-        data: {
-          datasets: [{
-            label: 'Gaze Points',
-            data: data.map(d => ({
-              x: d.x,
-              y: d.y
-            })),
-            backgroundColor: 'rgba(74, 144, 226, 0.5)',
-            borderColor: 'rgba(74, 144, 226, 1)',
-            pointRadius: 3
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            x: {
-              type: 'linear',
-              position: 'bottom',
-              title: {
-                display: true,
-                text: 'X Position (pixels)'
+      // Add chart creation and update functions before the window.onload
+      let eyeMovementChart, pupilDilationChart, headMovementChart;
+
+      function createEyeMovementChart(data) {
+        const ctx = document.getElementById('eyeMovementChart').getContext('2d');
+        if (eyeMovementChart) {
+          eyeMovementChart.destroy();
+        }
+
+        eyeMovementChart = new Chart(ctx, {
+          type: 'scatter',
+          data: {
+            datasets: [{
+              label: 'Gaze Points',
+              data: data.map(d => ({
+                x: d.x,
+                y: d.y
+              })),
+              backgroundColor: 'rgba(74, 144, 226, 0.5)',
+              borderColor: 'rgba(74, 144, 226, 1)',
+              pointRadius: 3
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                type: 'linear',
+                position: 'bottom',
+                title: {
+                  display: true,
+                  text: 'X Position (pixels)'
+                }
+              },
+              y: {
+                type: 'linear',
+                reverse: true,
+                title: {
+                  display: true,
+                  text: 'Y Position (pixels)'
+                }
               }
             },
-            y: {
-              type: 'linear',
-              reverse: true,
+            plugins: {
               title: {
                 display: true,
-                text: 'Y Position (pixels)'
+                text: 'Eye Movement Pattern'
               }
             }
-          },
-          plugins: {
-            title: {
-              display: true,
-              text: 'Eye Movement Pattern'
-            }
           }
-        }
-      });
-    }
-
-    function createPupilDilationChart(data) {
-      const ctx = document.getElementById('pupilDilationChart').getContext('2d');
-      if (pupilDilationChart) {
-        pupilDilationChart.destroy();
+        });
       }
 
-      pupilDilationChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: data.map((_, i) => i),
-          datasets: [{
-            label: 'Pupil Dilation',
-            data: data.map(d => d.pupilD),
-            borderColor: 'rgba(46, 204, 113, 1)',
-            backgroundColor: 'rgba(46, 204, 113, 0.2)',
-            fill: true
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            x: {
-              title: {
-                display: true,
-                text: 'Time (samples)'
+      function createPupilDilationChart(data) {
+        const ctx = document.getElementById('pupilDilationChart').getContext('2d');
+        if (pupilDilationChart) {
+          pupilDilationChart.destroy();
+        }
+
+        pupilDilationChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: data.map((_, i) => i),
+            datasets: [{
+              label: 'Pupil Dilation',
+              data: data.map(d => d.pupilD),
+              borderColor: 'rgba(46, 204, 113, 1)',
+              backgroundColor: 'rgba(46, 204, 113, 0.2)',
+              fill: true
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: 'Time (samples)'
+                }
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: 'Pupil Diameter'
+                }
               }
             },
-            y: {
+            plugins: {
               title: {
                 display: true,
-                text: 'Pupil Diameter'
+                text: 'Pupil Dilation Over Time'
               }
             }
-          },
-          plugins: {
-            title: {
-              display: true,
-              text: 'Pupil Dilation Over Time'
-            }
           }
-        }
-      });
-    }
+        });
+      }
 
     function createHeadMovementChart(data) {
       const ctx = document.getElementById('headMovementChart').getContext('2d');
@@ -2065,6 +2326,7 @@
     if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
         window.location.href = 'https:' + window.location.href.substring(window.location.protocol.length);
     }
+    //]]>
   </script>
 </head>
 <body>
