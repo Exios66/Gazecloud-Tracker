@@ -758,7 +758,8 @@
         }
 
         // Show initialization status
-        document.getElementById("liveData").innerHTML = `
+        const liveDataDiv = document.getElementById("liveData");
+        liveDataDiv.innerHTML = `
           <div class="calibration-message">
             <h3>Initializing Eye Tracking System</h3>
             <div class="initialization-steps">
@@ -781,70 +782,87 @@
           </div>
         `;
 
-        // Helper function to safely update step status
-        function updateStepStatus(stepId, success) {
-          const stepElement = document.querySelector(`#${stepId} .step-text`);
-          if (stepElement) {
-            stepElement.style.color = success ? 'var(--success-color)' : 'var(--error-color)';
-          }
-        }
+        // Wait for DOM to update before proceeding
+        setTimeout(() => {
+          initializeTracking();
+        }, 100);
 
-        // Check GazeCloud API and start initialization
-        checkGazeCloudAPI()
-          .then(() => {
-            updateStepStatus('step1', true);
-            return new Promise((resolve, reject) => {
+        function initializeTracking() {
+          // Helper function to safely update step status
+          function updateStepStatus(stepId, success) {
+            try {
+              const stepElement = document.querySelector(`#${stepId} .step-text`);
+              if (stepElement) {
+                stepElement.style.color = success ? 'var(--success-color)' : 'var(--error-color)';
+              }
+            } catch (error) {
+              console.error(`Error updating step ${stepId} status:`, error);
+            }
+          }
+
+          // Helper function to mark all steps as failed
+          function markStepsAsFailed() {
+            ['step1', 'step2', 'step3'].forEach(stepId => {
               try {
-                const result = initializeDataCollection();
-                if (result) {
-                  resolve(true);
-                } else {
-                  reject(new Error("Data collection initialization failed"));
-                }
+                updateStepStatus(stepId, false);
               } catch (error) {
-                reject(error);
+                console.error(`Error marking step ${stepId} as failed:`, error);
               }
             });
-          })
-          .then(() => {
-            updateStepStatus('step2', true);
-            
-            // Start eye tracking with a slight delay to ensure UI updates
-            return new Promise((resolve, reject) => {
-              setTimeout(() => {
+          }
+
+          // Check GazeCloud API and start initialization
+          checkGazeCloudAPI()
+            .then(() => {
+              updateStepStatus('step1', true);
+              return new Promise((resolve, reject) => {
                 try {
-                  if (!dataCollectionReady) {
-                    reject(new Error("Data collection system not ready"));
-                    return;
+                  const result = initializeDataCollection();
+                  if (result) {
+                    resolve(true);
+                  } else {
+                    reject(new Error("Data collection initialization failed"));
                   }
-
-                  if (typeof GazeCloudAPI === 'undefined' || !GazeCloudAPI.StartEyeTracking) {
-                    reject(new Error("GazeCloud API not properly initialized"));
-                    return;
-                  }
-
-                  updateStepStatus('step3', true);
-                  GazeCloudAPI.StartEyeTracking();
-                  isCalibrating = true;
-                  calibrationAttempts++;
-                  logMessage("Starting eye tracking calibration...", 'info');
-                  resolve(true);
                 } catch (error) {
                   reject(error);
                 }
-              }, 1000);
-            });
-          })
-          .catch((error) => {
-            console.error("Error starting tracking:", error);
-            // Mark all remaining steps as failed
-            ['step1', 'step2', 'step3'].forEach(stepId => {
-              updateStepStatus(stepId, false);
-            });
-            logMessage(error.message, 'error');
-            handleGazeError("Failed to initialize eye tracking: " + error.message);
-          });
+              });
+            })
+            .then(() => {
+              updateStepStatus('step2', true);
+              
+              return new Promise((resolve, reject) => {
+                setTimeout(() => {
+                  try {
+                    if (!dataCollectionReady) {
+                      reject(new Error("Data collection system not ready"));
+                      return;
+                    }
 
+                    if (typeof GazeCloudAPI === 'undefined' || !GazeCloudAPI.StartEyeTracking) {
+                      reject(new Error("GazeCloud API not properly initialized"));
+                      return;
+                    }
+
+                    updateStepStatus('step3', true);
+                    GazeCloudAPI.StartEyeTracking();
+                    isCalibrating = true;
+                    calibrationAttempts++;
+                    logMessage("Starting eye tracking calibration...", 'info');
+                    resolve(true);
+                  } catch (error) {
+                    reject(error);
+                  }
+                }, 500);
+              });
+            })
+            .catch((error) => {
+              console.error("Error starting tracking:", error);
+              markStepsAsFailed();
+              logMessage(error.message, 'error');
+              handleGazeError("Failed to initialize eye tracking: " + error.message);
+            });
+        }
       } catch (error) {
         console.error("Error in startTracking:", error);
         tracking = false;
