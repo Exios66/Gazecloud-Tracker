@@ -9,8 +9,17 @@
   <!-- GazeCloudAPI for live tracking -->
   <script src="https://api.gazerecorder.com/GazeCloudAPI.js" 
           crossorigin="anonymous" 
-          onerror="handleScriptError('GazeCloudAPI')" 
-          async></script>
+          onerror="handleScriptError('GazeCloudAPI')"
+          onload="handleScriptLoad('GazeCloudAPI')"></script>
+  <!-- Fallback for GazeCloud API -->
+  <script>
+    window.gazeCloudCallback = function() {
+      console.log('GazeCloud API loaded via callback');
+      if (window.handleScriptLoad) {
+        window.handleScriptLoad('GazeCloudAPI');
+      }
+    };
+  </script>
   <!-- Chart.js for visualizations -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js" integrity="sha512-TK03gH1Gm//td4nG9lGFuIxFWBViON6gWlBe1K+DGdO0T48V1XJXDzcK0pAcn0OvykthLJf8pnwU4YHqCZMZw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <!-- PapaParse for CSV processing -->
@@ -875,522 +884,204 @@
       logMessage(`🔍 Debug: ${message}`, 'info');
     }
 
-    // Enhanced API verification with detailed checks
-    function verifyGazeCloudAPI() {
-      return new Promise((resolve, reject) => {
-        debugLog('Starting GazeCloud API verification');
-        
-        // Check if script is loaded
-        const gazeScript = document.querySelector('script[src*="GazeCloudAPI.js"]');
-        if (!gazeScript) {
-          debugLog('GazeCloud API script tag not found');
-          reject({ code: ERROR_CODES.API_NOT_FOUND, message: 'GazeCloud API script not found in DOM' });
-          return;
-        }
+    // Add at the start of your script section
+    let gazeCloudScriptLoaded = false;
 
-        // Verify API object
-        if (typeof GazeCloudAPI === 'undefined') {
-          debugLog('GazeCloud API object not defined');
-          reject({ code: ERROR_CODES.API_NOT_FOUND, message: 'GazeCloud API not found. Please check your internet connection.' });
-          return;
-        }
-
-        // Verify required methods with detailed logging
-        const requiredMethods = [
-          'StartEyeTracking',
-          'StopEyeTracking',
-          'OnResult',
-          'OnCalibrationComplete',
-          'OnCalibrationFail',
-          'OnCamDenied',
-          'OnError'
-        ];
-
-        const missingMethods = requiredMethods.filter(method => {
-          const exists = typeof GazeCloudAPI[method] === 'function';
-          debugLog(`Checking method ${method}: ${exists ? 'Found' : 'Missing'}`);
-          return !exists;
-        });
-        
-        if (missingMethods.length > 0) {
-          reject({
-            code: ERROR_CODES.INITIALIZATION_ERROR,
-            message: `Missing required GazeCloud API methods: ${missingMethods.join(', ')}`
-          });
-          return;
-        }
-
-        // Verify WebSocket support
-        if (!window.WebSocket) {
-          reject(new Error("❌ WebSocket support not available"));
-          return;
-        }
-
-        debugLog('API verification completed successfully');
-        resolve(true);
-      });
+    function handleScriptLoad(scriptName) {
+      console.log(`${scriptName} script loaded successfully`);
+      if (scriptName === 'GazeCloudAPI') {
+        gazeCloudScriptLoaded = true;
+        initializeGazeCloudAPI();
+      }
     }
 
-    // Enhanced initialization with better error handling
-    function initializeDataCollection() {
-      debugLog('Starting data collection initialization');
-      
+    function handleScriptError(scriptName) {
+      console.error(`Failed to load ${scriptName} script`);
+      gazeCloudScriptLoaded = false;
+      document.getElementById("liveData").innerHTML = `
+        <div class="calibration-message error">
+          <h3>❌ Script Loading Error</h3>
+          <p>Failed to load ${scriptName}. Please:</p>
+          <ol>
+            <li>Check your internet connection</li>
+            <li>Disable any content blockers</li>
+            <li>Try refreshing the page</li>
+            <li>Make sure you're using a supported browser (Chrome recommended)</li>
+          </ol>
+          <p>Click "Start Tracking" to try again, or refresh the page.</p>
+        </div>
+      `;
+    }
+
+    function setupGazeCloudCallbacks() {
+      if (typeof GazeCloudAPI === 'undefined') {
+        console.error('Cannot setup callbacks - GazeCloudAPI not defined');
+        return false;
+      }
+
       try {
-        dataCollectionReady = false;
-        recordedData = [];
-        lastDataPoint = null;
-        apiState = API_STATES.INITIALIZING;
-        
-        return verifyGazeCloudAPI()
-          .then(() => {
-            debugLog('API verified, resetting data structures');
-            resetDataStructures();
+        // Setup all required callbacks
+        GazeCloudAPI.OnCalibrationComplete = function() {
+          console.log('Calibration completed successfully');
+          logMessage("✅ Calibration completed!", 'success');
+          tracking = true;
+          calibrationAttempts = 0;
+          updateUIState(true);
+        };
 
-            debugLog('Configuring GazeCloud API settings');
-            
-            // Configure with validation
-            const config = {
-              CalibrationType: 5, // 5-point calibration
-              ShowVideo: true,
-              UseClickRecalibration: true,
-              Debug: DEBUG,
-              GazeFlowContainer: 'liveData', // Specify container for calibration UI
-              VideoElementContainer: 'liveData', // Specify container for video feed
-              CallbackTrackingReady: function() {
-                debugLog('Tracking ready callback triggered');
-                logMessage("✅ Eye tracking system ready", 'success');
-              },
-              CallbackCalibrationFailed: function(error) {
-                debugLog('Calibration failed callback', error);
-                handleCalibrationFailure();
-              }
-            };
+        GazeCloudAPI.OnCalibrationFail = function() {
+          console.error('Calibration failed');
+          logMessage("❌ Calibration failed. Please try again.", 'error');
+          tracking = false;
+          calibrationAttempts++;
+          updateUIState(false);
+        };
 
-            Object.entries(config).forEach(([key, value]) => {
-              try {
-                GazeCloudAPI[key] = value;
-                debugLog(`Set ${key} = ${value}`);
-              } catch (error) {
-                debugLog(`Error setting ${key}`, error);
-              }
-            });
-
-            // Enhanced callback setup with debugging
-            GazeCloudAPI.OnCalibrationComplete = function() {
-              debugLog('Calibration completed');
-              apiState = API_STATES.RECORDING;
-              isCalibrating = false;
-              tracking = true;
-              calibrationAttempts = 0;
-              logMessage("✅ Calibration completed successfully!", 'success');
-              updateCalibrationUI('complete');
-              updateUIState(true);
-            };
-
-            GazeCloudAPI.OnCalibrationFail = function() {
-              debugLog('Calibration failed');
-              apiState = API_STATES.ERROR;
-              handleCalibrationFailure();
-            };
-
-            GazeCloudAPI.OnCamDenied = function() {
-              debugLog('Camera access denied');
-              apiState = API_STATES.ERROR;
-              handleGazeError({
-                code: ERROR_CODES.CAMERA_DENIED,
-                message: "❌ Camera access denied. Please check your camera permissions."
-              });
-              updateUIState(false);
-            };
-
-            GazeCloudAPI.OnError = function(error) {
-              debugLog('GazeCloud API error received:', error);
-              
-              let errorMessage = "Unknown GazeCloud API Error";
-              let errorCode = ERROR_CODES.INITIALIZATION_ERROR;
-              
-              try {
-                // Handle different error formats
-                if (typeof error === 'object') {
-                  if (error instanceof Error) {
-                    errorMessage = error.message;
-                  } else if (error !== null) {
-                    errorMessage = JSON.stringify(error, Object.getOwnPropertyNames(error));
-                  }
-                } else if (typeof error === 'string') {
-                  errorMessage = error;
-                }
-                
-                // Determine error type
-                if (errorMessage.toLowerCase().includes('camera')) {
-                  errorCode = ERROR_CODES.CAMERA_DENIED;
-                } else if (errorMessage.toLowerCase().includes('connection') || 
-                          errorMessage.toLowerCase().includes('websocket')) {
-                  errorCode = ERROR_CODES.CONNECTION_ERROR;
-                }
-                
-                debugLog('Processed error:', { code: errorCode, message: errorMessage });
-              } catch (e) {
-                console.error('Error processing GazeCloud error:', e);
-                errorMessage = "Failed to process error details";
-              }
-              
-              handleGazeError({
-                code: errorCode,
-                message: `GazeCloud API Error: ${errorMessage}`,
-                originalError: error
-              });
-            };
-
-            GazeCloudAPI.OnConnect = function() {
-              debugLog('GazeCloud API connected');
-              apiState = API_STATES.CONNECTED;
-              logMessage("✅ GazeCloud API connected successfully", 'success');
-              updateConnectionUI('connected');
-              dataCollectionReady = true;
-            };
-
-            GazeCloudAPI.OnResult = function(GazeData) {
-              if (apiState === API_STATES.RECORDING) {
-                handleGazeData(GazeData);
-              }
-            };
-
-            GazeCloudAPI.OnCalibrationStart = function() {
-              debugLog('Calibration started');
-              apiState = API_STATES.CALIBRATING;
-              calibrationStartTime = Date.now();
-              isCalibrating = true;
-              logMessage("🎯 Starting calibration process...", 'info');
-              updateCalibrationUI('start');
-            };
-
-            debugLog('Data collection system initialized');
-            dataCollectionReady = true;
-            logMessage("✅ Data collection system initialized successfully", 'success');
-            return true;
-          })
-          .catch(error => {
-            debugLog('Initialization failed', error);
-            logMessage(`❌ API Initialization failed: ${error.message}`, 'error');
-            return false;
+        GazeCloudAPI.OnCamDenied = function() {
+          console.error('Camera access denied');
+          handleGazeError({
+            code: 'CAMERA_DENIED',
+            message: "Camera access was denied. Please check your camera permissions and try again."
           });
+          tracking = false;
+          updateUIState(false);
+        };
+
+        GazeCloudAPI.OnError = function(error) {
+          console.error('GazeCloud API error:', error);
+          
+          let errorMessage = "Unknown error occurred";
+          let errorCode = 'UNKNOWN_ERROR';
+          
+          if (error && typeof error === 'object') {
+            errorMessage = error.message || JSON.stringify(error);
+          } else if (typeof error === 'string') {
+            errorMessage = error;
+          }
+          
+          // Categorize common errors
+          if (errorMessage.toLowerCase().includes('camera')) {
+            errorCode = 'CAMERA_ERROR';
+          } else if (errorMessage.toLowerCase().includes('connection') || 
+                     errorMessage.toLowerCase().includes('websocket')) {
+            errorCode = 'CONNECTION_ERROR';
+          }
+          
+          handleGazeError({
+            code: errorCode,
+            message: errorMessage,
+            details: error
+          });
+          
+          tracking = false;
+          updateUIState(false);
+        };
+
+        GazeCloudAPI.OnResult = function(gazeData) {
+          if (!tracking) return;
+          
+          try {
+            // Process and store gaze data
+            const processedData = {
+              timestamp: Date.now(),
+              x: gazeData.docX,
+              y: gazeData.docY,
+              pupilX: gazeData.eyeX,
+              pupilY: gazeData.eyeY,
+              confidence: gazeData.confidence
+            };
+            
+            // Update live display
+            updateLiveData(processedData);
+            
+            // Store data point
+            if (recordedData) {
+              recordedData.push(processedData);
+            }
+          } catch (error) {
+            console.error('Error processing gaze data:', error);
+          }
+        };
+
+        return true;
       } catch (error) {
-        debugLog('Fatal initialization error', error);
-        console.error("Error initializing data collection:", error);
-        logMessage("❌ Failed to initialize data collection: " + error.message, 'error');
+        console.error('Error setting up GazeCloud callbacks:', error);
         return false;
       }
     }
 
-    // Update UI based on calibration state
-    function updateCalibrationUI(state) {
-      const liveData = document.getElementById("liveData");
-      switch(state) {
-        case 'start':
-          liveData.innerHTML = `
-            <div class="calibration-message">
-              <h3>🎯 Calibration in Progress</h3>
-              <p>Please follow these steps:</p>
-              <ol>
-                <li class="active">Look at each calibration point as it appears</li>
-                <li>Keep your head still during calibration</li>
-                <li>Follow the point with your eyes only</li>
-                <li>Wait for all points to be completed</li>
-              </ol>
-              <div class="calibration-progress">
-                <div class="progress-bar">
-                  <div class="progress-indicator"></div>
-                </div>
-              </div>
-            </div>
-          `;
-          break;
-        case 'complete':
-          liveData.innerHTML = `
-            <div class="calibration-message success">
-              <h3>✅ Calibration Complete</h3>
-              <p>Eye tracking is now active and recording data.</p>
-              <div class="live-data-grid">
-                <div class="data-section">
-                  <strong>Status:</strong>
-                  <span class="data-value recording">Recording</span>
-                </div>
-              </div>
-            </div>
-          `;
-          break;
-      }
-    }
-
-    // Update UI based on connection state
-    function updateConnectionUI(state) {
-      const liveData = document.getElementById("liveData");
-      switch(state) {
-        case 'connecting':
-          liveData.innerHTML = `
-            <div class="calibration-message">
-              <h3>🔄 Connecting to GazeCloud</h3>
-              <div class="initialization-steps">
-                <div class="step">
-                  <span class="step-indicator">⚙️</span>
-                  <span class="step-text">Establishing connection...</span>
-                </div>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-indicator"></div>
-              </div>
-            </div>
-          `;
-          break;
-        case 'connected':
-          liveData.innerHTML = `
-            <div class="calibration-message success">
-              <h3>✅ Connected Successfully</h3>
-              <p>Preparing for calibration...</p>
-            </div>
-          `;
-          break;
-      }
-    }
-
-    // Enhanced check for GazeCloud API with connection validation
-    function checkGazeCloudAPI() {
-      return new Promise((resolve, reject) => {
-        let attempts = 0;
-        const maxAttempts = 20; // Increased max attempts
-        const checkInterval = 1000; // Increased interval to 1 second
-        
-        function check() {
-          debugLog(`Checking GazeCloud API (attempt ${attempts + 1}/${maxAttempts})`);
-          
-          try {
-            // First check if script is loaded
-            const gazeScript = document.querySelector('script[src*="GazeCloudAPI.js"]');
-            if (!gazeScript) {
-              // If script is not found, inject it
-              const script = document.createElement('script');
-              script.src = 'https://api.gazerecorder.com/GazeCloudAPI.js';
-              script.async = true;
-              document.head.appendChild(script);
-              debugLog('Injected GazeCloud API script');
-            }
-
-            if (typeof GazeCloudAPI !== 'undefined' && 
-                GazeCloudAPI.StartEyeTracking && 
-                typeof GazeCloudAPI.StartEyeTracking === 'function') {
-              
-              // Additional connection validation
-              if (window.WebSocket) {
-                apiState = API_STATES.CONNECTED;
-                logMessage("✅ GazeCloud API loaded successfully", 'success');
-                resolve(true);
-                return;
-              } else {
-                reject(new Error("❌ WebSocket support not available"));
-                return;
-              }
-            }
-            
-            attempts++;
-            if (attempts >= maxAttempts) {
-              reject(new Error("❌ GazeCloud API failed to load after multiple attempts"));
-              return;
-            }
-            
-            logMessage(`⏳ Waiting for GazeCloud API to load (attempt ${attempts}/${maxAttempts})...`, 'info');
-            setTimeout(check, checkInterval);
-          } catch (error) {
-            reject(new Error("❌ Error checking GazeCloud API: " + error.message));
-          }
+    // Update the initializeGazeCloudAPI function to include callback setup
+    function initializeGazeCloudAPI() {
+      try {
+        if (typeof GazeCloudAPI === 'undefined') {
+          // If script is not found, inject it
+          const script = document.createElement('script');
+          script.src = 'https://api.gazerecorder.com/GazeCloudAPI.js';
+          script.async = true;
+          script.crossOrigin = 'anonymous';
+          script.onerror = () => handleScriptError('GazeCloudAPI');
+          script.onload = () => {
+            gazeCloudScriptLoaded = true;
+            setupGazeCloudCallbacks();
+            logMessage("✅ GazeCloud API loaded successfully", 'success');
+          };
+          document.head.appendChild(script);
+          return;
         }
-        
-        check();
+
+        // Configure GazeCloud API settings
+        GazeCloudAPI.APIKey = ''; // Empty API key for public access
+        GazeCloudAPI.CalibrationType = 5;
+        GazeCloudAPI.ShowVideo = true;
+        GazeCloudAPI.UseClickRecalibration = true;
+        GazeCloudAPI.Debug = true;
+        GazeCloudAPI.CrossOrigin = true;
+        GazeCloudAPI.Protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+        // Setup callbacks
+        if (setupGazeCloudCallbacks()) {
+          logMessage("✅ GazeCloud API initialized successfully", 'success');
+        } else {
+          throw new Error("Failed to setup GazeCloud callbacks");
+        }
+      } catch (error) {
+        console.error('Error initializing GazeCloud API:', error);
+        logMessage("❌ Error initializing GazeCloud API: " + error.message, 'error');
+        throw error;
+      }
+    }
+
+    // Update waitForGazeCloud function
+    function waitForGazeCloud() {
+      return new Promise((resolve, reject) => {
+        const maxWaitTime = 20000; // 20 seconds
+        const checkInterval = 100; // 100ms
+        const startTime = Date.now();
+
+        function checkAPI() {
+          if (typeof GazeCloudAPI !== 'undefined' && gazeCloudScriptLoaded) {
+            resolve();
+            return;
+          }
+
+          if (Date.now() - startTime > maxWaitTime) {
+            reject(new Error('Timeout waiting for GazeCloud API'));
+            return;
+          }
+
+          // If script failed to load, try to reload it
+          if (!gazeCloudScriptLoaded) {
+            initializeGazeCloudAPI();
+          }
+
+          setTimeout(checkAPI, checkInterval);
+        }
+
+        checkAPI();
       });
     }
 
-    // Add DataStorageService class definition
-    class DataStorageService {
-      constructor() {
-        this.currentSession = {
-          config: null,
-          gazeData: []
-        };
-        this.sessionStartTime = 0;
-        this.lastFixationStart = 0;
-        this.lastGazePoint = null;
-        this.fixationCount = 0;
-        this.totalFixationDuration = 0;
-        this.saccadeCount = 0;
-        this.totalSaccadeLength = 0;
-        this.blinkCount = 0;
-        this.lastBlinkTime = 0;
-      }
-
-      initializeSession(config) {
-        this.currentSession = {
-          config,
-          gazeData: []
-        };
-        this.sessionStartTime = Date.now();
-        this.lastFixationStart = 0;
-        this.lastGazePoint = null;
-        this.fixationCount = 0;
-        this.totalFixationDuration = 0;
-        this.saccadeCount = 0;
-        this.totalSaccadeLength = 0;
-        this.blinkCount = 0;
-        this.lastBlinkTime = Date.now();
-      }
-
-      addGazeData(data) {
-        if (!this.currentSession.config) {
-          throw new Error('No active session');
-        }
-        const enrichedData = this.calculateMetrics(data);
-        this.currentSession.gazeData.push(enrichedData);
-        this.lastGazePoint = enrichedData;
-        return enrichedData;
-      }
-
-      getCurrentSession() {
-        return this.currentSession;
-      }
-
-      clearSession() {
-        this.currentSession = {
-          config: null,
-          gazeData: []
-        };
-        this.sessionStartTime = 0;
-        this.lastFixationStart = 0;
-        this.lastGazePoint = null;
-        this.fixationCount = 0;
-        this.totalFixationDuration = 0;
-        this.saccadeCount = 0;
-        this.totalSaccadeLength = 0;
-        this.blinkCount = 0;
-        this.lastBlinkTime = 0;
-      }
-
-      getGazeDataCount() {
-        return this.currentSession.gazeData.length;
-      }
-
-      formatTime(timestamp) {
-        const date = new Date(timestamp);
-        return {
-          formattedTime: date.toTimeString().split(' ')[0] + '.' + String(date.getMilliseconds()).padStart(3, '0'),
-          formattedDate: date.toISOString().split('T')[0]
-        };
-      }
-
-      formatSessionTime(sessionTime) {
-        const minutes = Math.floor(sessionTime / 60000);
-        const seconds = Math.floor((sessionTime % 60000) / 1000);
-        const milliseconds = sessionTime % 1000;
-        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
-      }
-
-      calculateMetrics(data) {
-        const now = Date.now();
-        const enrichedData = { ...data };
-        const sessionTime = now - this.sessionStartTime;
-        const { formattedTime, formattedDate } = this.formatTime(now);
-
-        // Add timestamps
-        enrichedData.timestamp = now;
-        enrichedData.sessionTime = sessionTime;
-        enrichedData.formattedTime = formattedTime;
-        enrichedData.formattedDate = formattedDate;
-        enrichedData.sessionTimeFormatted = this.formatSessionTime(sessionTime);
-
-        // Calculate fixation and saccade metrics
-        if (this.lastGazePoint) {
-          const distance = Math.sqrt(
-            Math.pow((data.x - this.lastGazePoint.x), 2) + 
-            Math.pow((data.y - this.lastGazePoint.y), 2)
-          );
-
-          const FIXATION_THRESHOLD = 30;
-          if (distance < FIXATION_THRESHOLD) {
-            const fixationDuration = now - this.lastFixationStart;
-            enrichedData.fixationDuration = fixationDuration;
-            this.totalFixationDuration += fixationDuration;
-            
-            if (!this.lastGazePoint.fixationDuration) {
-              this.fixationCount++;
-            }
-          } else {
-            this.lastFixationStart = now;
-            enrichedData.saccadeLength = distance;
-            this.saccadeCount++;
-            this.totalSaccadeLength += distance;
-          }
-
-          enrichedData.gazeDistance = distance;
-          
-          // Calculate velocities
-          const timeElapsed = now - this.lastGazePoint.timestamp;
-          enrichedData.gazeVelocity = distance / (timeElapsed / 1000); // pixels per second
-        } else {
-          this.lastFixationStart = now;
-        }
-
-        // Detect blinks
-        if (data.confidence && data.confidence < 0.1) {
-          if (now - this.lastBlinkTime > 300) {
-            this.blinkCount++;
-            this.lastBlinkTime = now;
-          }
-        }
-
-        // Calculate aggregate metrics
-        const sessionDuration = Math.max((now - this.sessionStartTime) / 1000 / 60, 1/60);
-        enrichedData.blinkRate = this.blinkCount / sessionDuration;
-        enrichedData.avgFixationDuration = this.totalFixationDuration / Math.max(this.fixationCount, 1);
-        enrichedData.fixationsPerMinute = this.fixationCount / sessionDuration;
-        enrichedData.avgSaccadeLength = this.totalSaccadeLength / Math.max(this.saccadeCount, 1);
-        enrichedData.saccadesPerMinute = this.saccadeCount / sessionDuration;
-
-        return enrichedData;
-      }
-    }
-
-    // Initialize DataStorageService instance
-    let dataStorage = new DataStorageService();
-
-    // Update handleGazeData function to use DataStorageService
-    function handleGazeData(GazeData) {
-      try {
-        if (!tracking || !dataCollectionReady) return;
-
-        const processedData = processGazeData(GazeData);
-        if (!processedData) return;
-
-        // Add data to storage service
-        const enrichedData = dataStorage.addGazeData(processedData);
-        
-        // Update UI with enriched data
-        updateLiveData(enrichedData);
-        
-        if (dataStorage.getGazeDataCount() % 50 === 0) {
-          const recentData = dataStorage.getCurrentSession().gazeData.slice(-50);
-          const avgConfidence = mean(recentData.map(d => d.confidence || 0));
-          logMessage(
-            `Recording active: ${dataStorage.getGazeDataCount()} points collected | ` +
-            `Recent Quality: ${(avgConfidence * 100).toFixed(1)}% | ` +
-            `Rate: ${(50000 / (Date.now() - lastUpdate)).toFixed(1)} Hz`,
-            avgConfidence > DATA_QUALITY_THRESHOLD ? 'success' : 'warning'
-          );
-        }
-      } catch (error) {
-        console.error("Error processing gaze data:", error);
-        logMessage("Error processing gaze data: " + error.message, 'error');
-      }
-    }
-
-    // Update startTracking function to initialize session
+    // Update startTracking function
     async function startTracking() {
       try {
         if (tracking) {
@@ -1401,13 +1092,6 @@
         if (calibrationAttempts >= MAX_CALIBRATION_ATTEMPTS) {
           logMessage(`❌ Too many calibration attempts. Please refresh the page and try again.`, 'error');
           return;
-        }
-
-        // Wait for GazeCloud API to be available
-        try {
-          await waitForGazeCloud();
-        } catch (error) {
-          throw new Error("GazeCloud API not available: " + error.message);
         }
 
         // Initialize new session
@@ -1421,6 +1105,13 @@
 
         // Clear any existing video elements
         document.querySelectorAll('video').forEach(video => video.remove());
+
+        // Wait for GazeCloud API to be available
+        try {
+          await waitForGazeCloud();
+        } catch (error) {
+          throw new Error("GazeCloud API not available: " + error.message);
+        }
 
         // Initialize GazeCloud API and start tracking
         if (!initializeGazeTracking()) {
@@ -1599,7 +1290,7 @@
                 <li>Check if your camera is properly connected</li>
                 <li>Allow camera access in your browser settings</li>
                 <li>Make sure no other application is using your camera</li>
-                <li>Try using a different camera if available</li>
+                <li>Try restarting your browser</li>
               </ol>
               <p>Once you've checked these, click "Start Tracking" to try again.</p>
             </div>
@@ -1890,47 +1581,22 @@
       }
     }
 
-    // Add at the start of your script section
-    function handleScriptError(scriptName) {
-      console.error(`Failed to load ${scriptName} script`);
-      document.getElementById("liveData").innerHTML = `
-        <div class="calibration-message error">
-          <h3>❌ Script Loading Error</h3>
-          <p>Failed to load ${scriptName}. Please:</p>
-          <ol>
-            <li>Check your internet connection</li>
-            <li>Disable any content blockers</li>
-            <li>Try refreshing the page</li>
-          </ol>
-        </div>
-      `;
-    }
-
-    // Add before your existing initialization code
-    function waitForGazeCloud() {
-      return new Promise((resolve, reject) => {
-        if (typeof GazeCloudAPI !== 'undefined') {
-          resolve();
-          return;
-        }
-
-        let attempts = 0;
-        const maxAttempts = 20;
-        const interval = setInterval(() => {
-          if (typeof GazeCloudAPI !== 'undefined') {
-            clearInterval(interval);
-            resolve();
-            return;
-          }
-
-          attempts++;
-          if (attempts >= maxAttempts) {
-            clearInterval(interval);
-            reject(new Error('GazeCloudAPI failed to load'));
-          }
-        }, 500);
-      });
-    }
+    // Initialize everything when the page loads
+    window.onload = function() {
+      try {
+        initDB()
+          .then(() => {
+            initializeTheme();
+            loadSessions();
+            logMessage("Application initialized successfully", 'success');
+          })
+          .catch(error => {
+            logMessage("Error initializing application: " + error.message, 'error');
+          });
+      } catch (error) {
+        console.error("Error in window.onload:", error);
+      }
+    };
   </script>
 </head>
 <body>
