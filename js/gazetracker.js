@@ -28,6 +28,19 @@ let lastValidData = null;
 // Chart configurations
 let gazeChart, pupilChart, headChart;
 
+// DOM Elements
+let initStatusEl, calibrationOverlayEl;
+
+// Initialize DOM elements
+function initializeDOMElements() {
+    initStatusEl = document.getElementById('initStatus');
+    calibrationOverlayEl = document.querySelector('.calibration-overlay');
+    
+    if (initStatusEl) {
+        initStatusEl.classList.add('show');
+    }
+}
+
 function initializeCharts() {
     const commonConfig = {
         type: 'line',
@@ -230,6 +243,9 @@ function initializeGazeCloudAPI() {
 
         // Set up callbacks
         GazeCloudAPI.OnCalibrationComplete = function() {
+            if (calibrationOverlayEl) {
+                calibrationOverlayEl.classList.remove('show');
+            }
             logMessage("✅ Calibration completed!", 'success');
             isCalibrating = false;
             tracking = true;
@@ -239,6 +255,9 @@ function initializeGazeCloudAPI() {
         };
 
         GazeCloudAPI.OnCalibrationFail = function() {
+            if (calibrationOverlayEl) {
+                calibrationOverlayEl.classList.remove('show');
+            }
             logMessage("❌ Calibration failed", 'error');
             handleCalibrationFailure();
         };
@@ -281,6 +300,11 @@ async function startTracking() {
         
         if (!initializeGazeCloudAPI()) {
             throw new Error("Failed to initialize GazeCloud API");
+        }
+
+        // Show calibration overlay
+        if (calibrationOverlayEl) {
+            calibrationOverlayEl.classList.add('show');
         }
 
         logMessage("Starting eye tracking...", 'info');
@@ -480,11 +504,41 @@ function resetDataStructures() {
 // Initialize when the page loads
 window.addEventListener('load', async () => {
     try {
+        initializeDOMElements();
+        
+        // Check for required APIs
+        if (!window.indexedDB) {
+            throw new Error("Your browser doesn't support IndexedDB. Please use a modern browser.");
+        }
+        
+        if (!window.Chart) {
+            throw new Error("Chart.js failed to load. Please check your internet connection.");
+        }
+        
+        if (!window.Papa) {
+            throw new Error("PapaParse failed to load. Please check your internet connection.");
+        }
+        
+        // Initialize components
         await initDB();
         initializeCharts();
         loadSessions();
+        
+        // Initialize GazeCloud API
+        if (!initializeGazeCloudAPI()) {
+            throw new Error("Failed to initialize GazeCloud API. Please check your internet connection.");
+        }
+        
+        // Hide initialization status
+        if (initStatusEl) {
+            initStatusEl.classList.remove('show');
+        }
+        
         logMessage("Application initialized successfully", 'success');
     } catch (error) {
         logMessage("Error initializing application: " + error.message, 'error');
+        if (initStatusEl) {
+            initStatusEl.innerHTML = `<p style="color: var(--error-color)">⚠️ ${error.message}</p>`;
+        }
     }
 }); 

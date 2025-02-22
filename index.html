@@ -3,10 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
     <title>Eye Tracking Recorder & Analysis Dashboard</title>
     
     <!-- Styles -->
     <link rel="stylesheet" href="css/styles.css">
+    
+    <!-- HTTPS Redirect -->
+    <script>
+        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+            window.location.href = 'https:' + window.location.href.substring(window.location.protocol.length);
+        }
+    </script>
+    
+    <!-- Loading Check -->
+    <script>
+        window.addEventListener('error', function(e) {
+            if (e.target.tagName === 'SCRIPT') {
+                console.error('Script loading error:', e.target.src);
+                document.getElementById('loadingError').style.display = 'block';
+            }
+        }, true);
+    </script>
     
     <!-- External Libraries -->
     <script src="https://api.gazerecorder.com/GazeCloudAPI.js"></script>
@@ -17,6 +35,11 @@
     <script src="js/gazetracker.js"></script>
 </head>
 <body>
+    <!-- Loading Error Message -->
+    <div id="loadingError" style="display: none;" class="error-message">
+        <p>⚠️ Error loading required scripts. Please check your internet connection and try refreshing the page.</p>
+    </div>
+
     <div class="container">
         <header>
             <h1>Eye Tracking Recorder & Analysis Dashboard</h1>
@@ -77,6 +100,11 @@
             <h2>Calibrating Eye Tracker</h2>
             <p>Please follow the dot with your eyes...</p>
         </div>
+    </div>
+
+    <!-- Initialization Status -->
+    <div id="initStatus" class="init-status">
+        <p>Initializing application...</p>
     </div>
 </body>
 </html>
