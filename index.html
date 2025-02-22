@@ -1,71 +1,82 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
-    <meta http-equiv="Permissions-Policy" content="interest-cohort=()">
     <title>Eye Tracking Recorder & Analysis Dashboard</title>
     
     <!-- Styles -->
     <link rel="stylesheet" href="css/styles.css">
     
-    <!-- External Dependencies -->
+    <!-- External Libraries -->
     <script src="https://api.gazerecorder.com/GazeCloudAPI.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js" 
-            integrity="sha512-TK03gH1Gm//td4nG9lGFuIxFWBViON6gWlBe1K+DGdO0T48V1XJXDzcK0pAcn0OvykthLJf8pnwU4YHqCZMZw==" 
-            crossorigin="anonymous" 
-            referrerpolicy="no-referrer"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js" 
-            integrity="sha512-rKFvwjvE4liWPlFnvH4ZhRDfNZ9FOpdkD/BU5gAIA3VS3vOQrQ5BjKgbO3kxebKhHdHcNUHLqxQYSoxee9UwgA==" 
-            crossorigin="anonymous" 
-            referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js" integrity="sha384-7NrRHqlWUj2hJl3a/dZj/a1GxuQc56mJ3aYsEnydBYrY1jR+RSt6SBvK3sHfj+mJ" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js" integrity="sha384-Qs7c+f58OQxPBwR+YEVe4Y5WS1SgqWg1YYG4YqQpH5OT0XlGdOb7LCw5rGGHlZuY" crossorigin="anonymous"></script>
     
     <!-- Application Scripts -->
-    <script src="js/gazetracker.js" defer></script>
+    <script src="js/gazetracker.js"></script>
 </head>
 <body>
     <div class="container">
-        <div class="header">
+        <header>
             <h1>Eye Tracking Recorder & Analysis Dashboard</h1>
-        </div>
+        </header>
 
         <div class="controls">
-            <button type="button" onclick="startTracking()">Start Tracking</button>
-            <button type="button" onclick="stopTracking()" disabled>Stop Tracking</button>
-            <button type="button" onclick="exportCSV()" disabled>Export Data</button>
-            <button type="button" onclick="clearData()" disabled>Clear Data</button>
+            <button onclick="startTracking()">Start Tracking</button>
+            <button onclick="stopTracking()" disabled>Stop Tracking</button>
+            <button onclick="exportCSV()" disabled>Export Data (CSV)</button>
+            <button onclick="clearData()" disabled>Clear Data</button>
         </div>
 
-        <div id="liveData">
-            <em>Live gaze data will appear here...</em>
+        <div class="data-display">
+            <div class="card">
+                <h2>Live Data</h2>
+                <div id="liveData">
+                    <em>Live gaze data will appear here...</em>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Debug Log</h2>
+                <div id="debugLog"></div>
+            </div>
         </div>
 
-        <div id="debugLog"></div>
+        <div class="charts">
+            <div class="card">
+                <h2>Gaze Position</h2>
+                <canvas id="gazeChart"></canvas>
+            </div>
 
-        <div class="chart-container">
-            <canvas id="eyeMovementChart"></canvas>
+            <div class="card">
+                <h2>Pupil Dilation</h2>
+                <canvas id="pupilChart"></canvas>
+            </div>
+
+            <div class="card">
+                <h2>Head Movement</h2>
+                <canvas id="headChart"></canvas>
+            </div>
         </div>
 
-        <div class="chart-container">
-            <canvas id="pupilDilationChart"></canvas>
-        </div>
-
-        <div class="chart-container">
-            <canvas id="headMovementChart"></canvas>
-        </div>
-
-        <div class="sessions-container">
+        <div class="sessions">
             <h2>Recorded Sessions</h2>
-            <div id="sessionsList"></div>
+            <div id="sessionsList" class="sessions-list">
+                <em>No recorded sessions yet...</em>
+            </div>
         </div>
     </div>
 
-    <script>
-        // Check for HTTPS
-        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-            window.location.href = 'https:' + window.location.href.substring(window.location.protocol.length);
-        }
-    </script>
+    <!-- Gaze tracking overlay -->
+    <div id="gaze" style="display: none;"></div>
+
+    <!-- Calibration overlay -->
+    <div class="calibration-overlay" style="display: none;">
+        <div class="calibration-message">
+            <h2>Calibrating Eye Tracker</h2>
+            <p>Please follow the dot with your eyes...</p>
+        </div>
+    </div>
 </body>
 </html>
