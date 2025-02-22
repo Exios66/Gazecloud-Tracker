@@ -239,10 +239,47 @@
     // Reset all data structures
     function resetDataStructures() {
       try {
-        // Clear existing charts
-        if (window.eyeMovementChart) window.eyeMovementChart.destroy();
-        if (window.pupilDilationChart) window.pupilDilationChart.destroy();
-        if (window.headMovementChart) window.headMovementChart.destroy();
+        // Safely destroy existing charts
+        function safeDestroyChart(chartInstance) {
+          try {
+            if (chartInstance && typeof chartInstance.destroy === 'function') {
+              chartInstance.destroy();
+            }
+          } catch (error) {
+            console.error("Error destroying chart:", error);
+          }
+        }
+
+        // Clear existing charts with safety checks
+        if (window.eyeMovementChart) {
+          safeDestroyChart(window.eyeMovementChart);
+          window.eyeMovementChart = null;
+        }
+        if (window.pupilDilationChart) {
+          safeDestroyChart(window.pupilDilationChart);
+          window.pupilDilationChart = null;
+        }
+        if (window.headMovementChart) {
+          safeDestroyChart(window.headMovementChart);
+          window.headMovementChart = null;
+        }
+
+        // Clear chart canvases
+        function clearCanvas(canvasId) {
+          try {
+            const canvas = document.getElementById(canvasId);
+            if (canvas) {
+              const ctx = canvas.getContext('2d');
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+          } catch (error) {
+            console.error(`Error clearing canvas ${canvasId}:`, error);
+          }
+        }
+
+        clearCanvas('eyeMovementChart');
+        clearCanvas('pupilDilationChart');
+        clearCanvas('headMovementChart');
         
         // Reset data arrays
         recordedData = [];
@@ -602,8 +639,19 @@
     // Create visualization charts with error handling
     function createEyeMovementChart(data) {
       try {
-        const ctx = document.getElementById('eyeMovementChart').getContext('2d');
-        if (window.eyeMovementChart) window.eyeMovementChart.destroy();
+        const canvas = document.getElementById('eyeMovementChart');
+        if (!canvas) {
+          logMessage("Eye movement chart canvas not found", 'error');
+          return;
+        }
+
+        const ctx = canvas.getContext('2d');
+        
+        // Safely destroy existing chart
+        if (window.eyeMovementChart && typeof window.eyeMovementChart.destroy === 'function') {
+          window.eyeMovementChart.destroy();
+        }
+        window.eyeMovementChart = null;
 
         const validData = data.filter(d =>
           ((d.x !== undefined && d.x !== '' && d.x !== null) || (d.docX !== undefined && d.docX !== '' && d.docX !== null)) &&
@@ -612,7 +660,7 @@
         );
 
         if (!validData.length) {
-          logMessage("No valid data for eye movement chart");
+          logMessage("No valid data for eye movement chart", 'warning');
           return;
         }
 
@@ -676,13 +724,24 @@
 
     function createPupilDilationChart(data) {
       try {
-        const ctx = document.getElementById('pupilDilationChart').getContext('2d');
-        if (window.pupilDilationChart) window.pupilDilationChart.destroy();
+        const canvas = document.getElementById('pupilDilationChart');
+        if (!canvas) {
+          logMessage("Pupil dilation chart canvas not found", 'error');
+          return;
+        }
+
+        const ctx = canvas.getContext('2d');
+        
+        // Safely destroy existing chart
+        if (window.pupilDilationChart && typeof window.pupilDilationChart.destroy === 'function') {
+          window.pupilDilationChart.destroy();
+        }
+        window.pupilDilationChart = null;
 
         const validData = data.filter(d => d.pupilD !== undefined && d.pupilD !== null && d.pupilD !== '' && d.timestamp);
         
         if (!validData.length) {
-          logMessage("No valid data for pupil dilation chart");
+          logMessage("No valid data for pupil dilation chart", 'warning');
           return;
         }
 
@@ -724,8 +783,19 @@
 
     function createHeadMovementChart(data) {
       try {
-        const ctx = document.getElementById('headMovementChart').getContext('2d');
-        if (window.headMovementChart) window.headMovementChart.destroy();
+        const canvas = document.getElementById('headMovementChart');
+        if (!canvas) {
+          logMessage("Head movement chart canvas not found", 'error');
+          return;
+        }
+
+        const ctx = canvas.getContext('2d');
+        
+        // Safely destroy existing chart
+        if (window.headMovementChart && typeof window.headMovementChart.destroy === 'function') {
+          window.headMovementChart.destroy();
+        }
+        window.headMovementChart = null;
 
         const validData = data.filter(d =>
           d.HeadX !== undefined && d.HeadY !== undefined && d.HeadZ !== undefined &&
@@ -734,7 +804,7 @@
         );
 
         if (!validData.length) {
-          logMessage("No valid data for head movement chart");
+          logMessage("No valid data for head movement chart", 'warning');
           return;
         }
 
