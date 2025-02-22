@@ -7,89 +7,67 @@
   <meta http-equiv="Permissions-Policy" content="interest-cohort=()">
   <title>Eye Tracking Recorder & Analysis Dashboard</title>
   <!-- GazeCloudAPI for live tracking -->
-  <script src="https://api.gazerecorder.com/GazeCloudAPI.js" 
-          crossorigin="anonymous" 
-          async
-          onerror="handleScriptError('GazeCloudAPI')"
-          onload="handleScriptLoad('GazeCloudAPI')"></script>
-  <!-- Fallback for GazeCloud API -->
   <script>
-    window.gazeCloudCallback = function() {
-      console.log('GazeCloud API loaded via callback');
-      if (window.handleScriptLoad) {
-        window.handleScriptLoad('GazeCloudAPI');
-      }
+    // Define backup URLs for GazeCloud API
+    const GAZECLOUD_URLS = [
+      'https://api.gazerecorder.com/GazeCloudAPI.js',
+      'https://api.gazecloud.ai/GazeCloudAPI.js',
+      'https://cdn.jsdelivr.net/npm/gazerecorder@latest/GazeCloudAPI.js'
+    ];
+
+    // Add configuration constants
+    const CONFIG = {
+      SMOOTHING_WINDOW: 3,  // Number of samples to use for smoothing
+      MIN_CONFIDENCE: 0.5,  // Minimum confidence threshold
+      CALIBRATION_TIMEOUT: 30000,  // 30 seconds
+      RECOVERY_DELAY: 2000,  // 2 seconds before retry
+      MAX_RECOVERY_ATTEMPTS: 3
     };
 
-    // Ensure GazeCloud API is loaded
-    function ensureGazeCloudLoaded() {
-      return new Promise((resolve, reject) => {
+    let currentUrlIndex = 0;
+    let loadAttempts = 0;
+    const MAX_ATTEMPTS = 3;
+    let recoveryAttempts = 0;
+    let lastValidData = null;
+
+    function loadGazeCloudAPI() {
+      if (loadAttempts >= MAX_ATTEMPTS * GAZECLOUD_URLS.length) {
+        console.error('Failed to load GazeCloud API after all attempts');
+        handleScriptError('GazeCloudAPI');
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = GAZECLOUD_URLS[currentUrlIndex];
+      script.async = true;
+      script.crossOrigin = 'anonymous';
+
+      script.onload = function() {
+        console.log('GazeCloud API script loaded from:', GAZECLOUD_URLS[currentUrlIndex]);
         if (typeof GazeCloudAPI !== 'undefined') {
-          resolve();
-          return;
-        }
-
-        const maxAttempts = 3;
-        let attempts = 0;
-
-        function tryLoadScript() {
-          attempts++;
-          console.log(`Attempting to load GazeCloud API (attempt ${attempts}/${maxAttempts})`);
-
-          const script = document.createElement('script');
-          script.src = 'https://api.gazerecorder.com/GazeCloudAPI.js';
-          script.crossOrigin = 'anonymous';
-          script.async = true;
-
-          script.onload = () => {
-            if (typeof GazeCloudAPI !== 'undefined') {
-              resolve();
-            } else {
-              // Wait a bit for API to initialize
-              setTimeout(() => {
-                if (typeof GazeCloudAPI !== 'undefined') {
-                  resolve();
-                } else if (attempts < maxAttempts) {
-                  script.remove();
-                  tryLoadScript();
-                } else {
-                  reject(new Error('Failed to initialize GazeCloud API'));
-                }
-              }, 500);
-            }
-          };
-
-          script.onerror = () => {
-            if (attempts < maxAttempts) {
-              script.remove();
-              setTimeout(tryLoadScript, 1000);
-            } else {
-              reject(new Error('Failed to load GazeCloud API script'));
-            }
-          };
-
-          document.head.appendChild(script);
-        }
-
-        tryLoadScript();
-      });
-    }
-
-    // Ensure GazeCloud API is loaded
-    function ensureGazeCloudLoaded() {
-      return new Promise((resolve, reject) => {
-        if (typeof GazeCloudAPI !== 'undefined') {
-          resolve();
+          handleScriptLoad('GazeCloudAPI');
         } else {
-          const script = document.createElement('script');
-          script.src = 'https://api.gazerecorder.com/GazeCloudAPI.js';
-          script.crossOrigin = 'anonymous';
-          script.onload = resolve;
-          script.onerror = reject;
-          document.head.appendChild(script);
+          console.warn('Script loaded but GazeCloudAPI not defined, trying next URL');
+          tryNextUrl();
         }
-      });
+      };
+
+      script.onerror = function() {
+        console.warn('Failed to load from:', GAZECLOUD_URLS[currentUrlIndex]);
+        tryNextUrl();
+      };
+
+      document.head.appendChild(script);
+      loadAttempts++;
     }
+
+    function tryNextUrl() {
+      currentUrlIndex = (currentUrlIndex + 1) % GAZECLOUD_URLS.length;
+      setTimeout(loadGazeCloudAPI, 1000);
+    }
+
+    // Start loading the API
+    loadGazeCloudAPI();
   </script>
   <!-- Chart.js for visualizations -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js" 
@@ -965,7 +943,8 @@
       CAMERA_DENIED: 'CAMERA_DENIED',
       INITIALIZATION_ERROR: 'INITIALIZATION_ERROR',
       CALIBRATION_ERROR: 'CALIBRATION_ERROR',
-      CONNECTION_ERROR: 'CONNECTION_ERROR'
+      CONNECTION_ERROR: 'CONNECTION_ERROR',
+      RECOVERY_FAILED: 'RECOVERY_FAILED'
     };
 
     // Enhanced error logging
@@ -991,19 +970,30 @@
     function handleScriptError(scriptName) {
       console.error(`Failed to load ${scriptName} script`);
       gazeCloudScriptLoaded = false;
-      document.getElementById("liveData").innerHTML = `
+      
+      const errorMessage = `
         <div class="calibration-message error">
           <h3>❌ Script Loading Error</h3>
-          <p>Failed to load ${scriptName}. Please:</p>
+          <p>Failed to load ${scriptName} after multiple attempts. Please check:</p>
           <ol>
-            <li>Check your internet connection</li>
-            <li>Disable any content blockers</li>
-            <li>Try refreshing the page</li>
+            <li>Your internet connection (try opening <a href="https://api.gazerecorder.com/GazeCloudAPI.js" target="_blank">GazeCloud API</a> in a new tab)</li>
+            <li>If you're behind a corporate firewall or VPN, try disabling it temporarily</li>
+            <li>Disable any content blockers or ad blockers</li>
+            <li>Clear your browser cache and cookies</li>
             <li>Make sure you're using a supported browser (Chrome recommended)</li>
           </ol>
+          <p>Additional troubleshooting:</p>
+          <ul>
+            <li>Current URL attempted: ${GAZECLOUD_URLS[currentUrlIndex]}</li>
+            <li>Total attempts made: ${loadAttempts}</li>
+            <li>Try opening your browser's developer tools (F12) and check the Console tab for more details</li>
+          </ul>
           <p>Click "Start Tracking" to try again, or refresh the page.</p>
         </div>
       `;
+      
+      document.getElementById("liveData").innerHTML = errorMessage;
+      logMessage(`Failed to load ${scriptName} script after ${loadAttempts} attempts`, 'error');
     }
 
     function setupGazeCloudCallbacks() {
@@ -1529,136 +1519,120 @@
       updateUIState(false);
     }
 
-    // Handle GazeCloud API errors with enhanced error handling
+    // Enhanced error handling
     function handleGazeError(error) {
       try {
         tracking = false;
         isCalibrating = false;
         dataCollectionReady = false;
-        
-        // Enhanced error logging
-        debugLog('Handling gaze error:', {
+
+        const errorDetails = {
+          timestamp: new Date().toISOString(),
           code: error.code,
           message: error.message,
-          originalError: error.originalError
-        });
-        
-        // Reset calibration attempts if it's a camera error
-        if (error.code === ERROR_CODES.CAMERA_DENIED) {
-          calibrationAttempts = 0;
-        }
-
-        // Log the error with appropriate level
-        console.error("GazeCloud API Error:", error);
-        logMessage(error.message || "Unknown error occurred", 'error');
-        
-        // Update UI state
-        updateUIState(false);
-        
-        // Show detailed error message with troubleshooting steps
-        const errorMessages = {
-          [ERROR_CODES.CAMERA_DENIED]: `
-            <div class="calibration-message error">
-              <h3>❌ Camera Access Denied</h3>
-              <p>The eye tracker needs access to your camera. Please:</p>
-              <ol>
-                <li>Check if your camera is properly connected</li>
-                <li>Allow camera access in your browser settings</li>
-                <li>Make sure no other application is using your camera</li>
-                <li>Try restarting your browser</li>
-              </ol>
-              <p>Once you've checked these, click "Start Tracking" to try again.</p>
-            </div>
-          `,
-          [ERROR_CODES.CONNECTION_ERROR]: `
-            <div class="calibration-message error">
-              <h3>❌ Connection Error</h3>
-              <p>Lost connection to the eye tracking service. Please:</p>
-              <ol>
-                <li>Check your internet connection</li>
-                <li>Ensure you have a stable network connection</li>
-                <li>Try refreshing the page</li>
-                <li>If the problem persists, try again in a few minutes</li>
-              </ol>
-              <p>Technical details: ${error.message}</p>
-            </div>
-          `,
-          [ERROR_CODES.API_NOT_FOUND]: `
-            <div class="calibration-message error">
-              <h3>❌ Connection Error</h3>
-              <p>Could not connect to the eye tracking service. Please:</p>
-              <ol>
-                <li>Check your internet connection</li>
-                <li>Disable any ad blockers or privacy extensions</li>
-                <li>Try refreshing the page</li>
-              </ol>
-              <p>Technical details: ${error.message}</p>
-            </div>
-          `,
-          [ERROR_CODES.INITIALIZATION_ERROR]: `
-            <div class="calibration-message error">
-              <h3>❌ Initialization Error</h3>
-              <p>The eye tracking system failed to initialize. Please ensure:</p>
-              <ol>
-                <li>Your browser is up to date (Chrome recommended)</li>
-                <li>You have a working webcam</li>
-                <li>Your system meets the minimum requirements</li>
-                <li>Try clearing your browser cache and cookies</li>
-              </ol>
-              <p>Technical details: ${error.message}</p>
-            </div>
-          `,
-          'default': `
-            <div class="calibration-message error">
-              <h3>❌ Eye Tracking Error</h3>
-              <p>An error occurred with the eye tracking system. Please:</p>
-              <ol>
-                <li>Check your camera and internet connection</li>
-                <li>Ensure proper lighting conditions</li>
-                <li>Make sure your face is clearly visible</li>
-                <li>Try refreshing the page</li>
-              </ol>
-              <p>Technical details: ${error.message}</p>
-            </div>
-          `
+          recoveryAttempt: recoveryAttempts,
+          lastValidDataTimestamp: lastValidData?.timestamp
         };
 
-        // Display the appropriate error message
-        document.getElementById("liveData").innerHTML = 
-          errorMessages[error.code] || errorMessages['default'];
+        debugLog('Handling gaze error:', errorDetails);
 
-        // If it's a critical error, suggest page refresh
-        if (error.code === ERROR_CODES.API_NOT_FOUND || 
-            error.code === ERROR_CODES.API_LOAD_TIMEOUT ||
-            error.code === ERROR_CODES.CONNECTION_ERROR) {
-          setTimeout(() => {
-            if (confirm('Would you like to refresh the page to try again?')) {
-              window.location.reload();
-            }
-          }, 1000);
-        }
-
-      } catch (e) {
-        console.error("Error in handleGazeError:", e);
-        document.getElementById("liveData").innerHTML = `
+        // Update UI with detailed error message
+        const errorMessage = `
           <div class="calibration-message error">
-            <h3>❌ Critical Error</h3>
-            <p>A critical error occurred. Please refresh the page and try again.</p>
-            <p>Error details: ${e.message}</p>
+            <h3>❌ Eye Tracking Error</h3>
+            <p>${error.message}</p>
+            <div class="error-details">
+              <p><strong>Error Code:</strong> ${error.code}</p>
+              <p><strong>Time:</strong> ${errorDetails.timestamp}</p>
+              ${error.details ? `<p><strong>Details:</strong> ${JSON.stringify(error.details)}</p>` : ''}
+            </div>
+            <div class="error-recovery">
+              <p><strong>Troubleshooting Steps:</strong></p>
+              <ol>
+                ${getErrorRecoverySteps(error.code)}
+              </ol>
+            </div>
+            ${recoveryAttempts < CONFIG.MAX_RECOVERY_ATTEMPTS ? 
+              '<p>Attempting automatic recovery...</p>' : 
+              '<p>Please refresh the page to try again.</p>'}
           </div>
         `;
+
+        document.getElementById("liveData").innerHTML = errorMessage;
+        updateUIState(false);
+
+        // Attempt recovery for recoverable errors
+        if (isRecoverableError(error.code)) {
+          attemptRecovery(error);
+        }
+      } catch (e) {
+        console.error("Error in handleGazeError:", e);
+        logMessage("Critical error in error handler: " + e.message, 'error');
       }
     }
 
-    // Validate and process incoming gaze data
+    // Add data smoothing function
+    function smoothGazeData(data) {
+      if (!data || !Array.isArray(data) || data.length < CONFIG.SMOOTHING_WINDOW) {
+        return data;
+      }
+
+      return data.map((point, index) => {
+        if (index < CONFIG.SMOOTHING_WINDOW - 1) return point;
+
+        const window = data.slice(index - CONFIG.SMOOTHING_WINDOW + 1, index + 1);
+        return {
+          ...point,
+          x: window.reduce((sum, p) => sum + p.x, 0) / CONFIG.SMOOTHING_WINDOW,
+          y: window.reduce((sum, p) => sum + p.y, 0) / CONFIG.SMOOTHING_WINDOW
+        };
+      });
+    }
+
+    // Enhanced error recovery
+    async function attemptRecovery(error) {
+      if (recoveryAttempts >= CONFIG.MAX_RECOVERY_ATTEMPTS) {
+        handleGazeError({
+          code: ERROR_CODES.RECOVERY_FAILED,
+          message: "Maximum recovery attempts reached. Please refresh the page."
+        });
+        return false;
+      }
+
+      recoveryAttempts++;
+      logMessage(`Attempting recovery (${recoveryAttempts}/${CONFIG.MAX_RECOVERY_ATTEMPTS})...`, 'warning');
+
+      try {
+        // Stop current tracking if active
+        if (typeof GazeCloudAPI !== 'undefined' && tracking) {
+          GazeCloudAPI.StopEyeTracking();
+        }
+
+        // Wait for recovery delay
+        await new Promise(resolve => setTimeout(resolve, CONFIG.RECOVERY_DELAY));
+
+        // Attempt to reinitialize
+        const success = await initializeGazeTracking();
+        if (success) {
+          recoveryAttempts = 0;
+          logMessage("Recovery successful!", 'success');
+          return true;
+        }
+      } catch (recoveryError) {
+        console.error("Recovery attempt failed:", recoveryError);
+      }
+
+      return false;
+    }
+
+    // Enhanced data processing
     function processGazeData(gazeData) {
       try {
-        if (!gazeData || typeof gazeData !== 'object') return null;
-        
-        // Validate timestamp and ensure proper interval
         const currentTime = Date.now();
-        if (lastDataPoint && (currentTime - lastDataPoint.timestamp) < MIN_DATA_INTERVAL) {
-          return null;
+        
+        // Basic validation
+        if (!gazeData || typeof gazeData !== 'object') {
+          throw new Error("Invalid gaze data format");
         }
 
         // Process and validate coordinates
@@ -1678,17 +1652,20 @@
         };
 
         // Validate data quality
-        if (processedData.confidence < DATA_QUALITY_THRESHOLD) {
-          logMessage("Low confidence data point detected", 'warning');
+        if (processedData.confidence < CONFIG.MIN_CONFIDENCE) {
+          if (lastValidData) {
+            logMessage("Low confidence data point detected, using last valid data", 'warning');
+            return lastValidData;
+          }
           return null;
         }
 
-        lastDataPoint = processedData;
+        lastValidData = processedData;
         return processedData;
       } catch (error) {
         console.error("Error processing gaze data:", error);
         logMessage("Error processing gaze data: " + error.message, 'error');
-        return null;
+        return lastValidData || null;
       }
     }
 
