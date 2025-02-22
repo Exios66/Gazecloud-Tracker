@@ -25,6 +25,195 @@ let calibrationAttempts = 0;
 let recordedData = [];
 let lastValidData = null;
 
+// Chart configurations
+let gazeChart, pupilChart, headChart;
+
+function initializeCharts() {
+    const commonConfig = {
+        type: 'line',
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    display: true,
+                    title: {
+                        display: true,
+                        text: 'Time (s)'
+                    }
+                },
+                y: {
+                    display: true,
+                }
+            }
+        }
+    };
+
+    // Gaze position chart
+    gazeChart = new Chart(document.getElementById('gazeChart'), {
+        ...commonConfig,
+        data: {
+            datasets: [{
+                label: 'X Position',
+                borderColor: '#ff6384',
+                data: []
+            }, {
+                label: 'Y Position',
+                borderColor: '#36a2eb',
+                data: []
+            }]
+        }
+    });
+
+    // Pupil dilation chart
+    pupilChart = new Chart(document.getElementById('pupilChart'), {
+        ...commonConfig,
+        data: {
+            datasets: [{
+                label: 'Pupil Size',
+                borderColor: '#4bc0c0',
+                data: []
+            }]
+        }
+    });
+
+    // Head movement chart
+    headChart = new Chart(document.getElementById('headChart'), {
+        ...commonConfig,
+        data: {
+            datasets: [{
+                label: 'X Rotation',
+                borderColor: '#ff6384',
+                data: []
+            }, {
+                label: 'Y Rotation',
+                borderColor: '#36a2eb',
+                data: []
+            }, {
+                label: 'Z Rotation',
+                borderColor: '#4bc0c0',
+                data: []
+            }]
+        }
+    });
+}
+
+function updateCharts() {
+    if (!recordedData.length) return;
+
+    const startTime = recordedData[0].timestamp;
+    const timeData = recordedData.map(d => (d.timestamp - startTime) / 1000);
+
+    // Update gaze position chart
+    gazeChart.data.datasets[0].data = recordedData.map((d, i) => ({x: timeData[i], y: d.x}));
+    gazeChart.data.datasets[1].data = recordedData.map((d, i) => ({x: timeData[i], y: d.y}));
+    gazeChart.update('none');
+
+    // Update pupil dilation chart
+    pupilChart.data.datasets[0].data = recordedData.map((d, i) => ({x: timeData[i], y: d.pupilD}));
+    pupilChart.update('none');
+
+    // Update head movement chart
+    headChart.data.datasets[0].data = recordedData.map((d, i) => ({x: timeData[i], y: d.HeadYaw}));
+    headChart.data.datasets[1].data = recordedData.map((d, i) => ({x: timeData[i], y: d.HeadPitch}));
+    headChart.data.datasets[2].data = recordedData.map((d, i) => ({x: timeData[i], y: d.HeadRoll}));
+    headChart.update('none');
+}
+
+function updateLiveData(data) {
+    const liveDataDiv = document.getElementById("liveData");
+    if (!liveDataDiv) return;
+
+    const formattedData = {
+        'Gaze X': Math.round(data.x),
+        'Gaze Y': Math.round(data.y),
+        'Confidence': (data.confidence * 100).toFixed(1) + '%',
+        'Pupil Size': data.pupilD.toFixed(2),
+        'Head Position': `X: ${data.HeadX.toFixed(1)}, Y: ${data.HeadY.toFixed(1)}, Z: ${data.HeadZ.toFixed(1)}`,
+        'Head Rotation': `Yaw: ${data.HeadYaw.toFixed(1)}°, Pitch: ${data.HeadPitch.toFixed(1)}°, Roll: ${data.HeadRoll.toFixed(1)}°`
+    };
+
+    liveDataDiv.innerHTML = Object.entries(formattedData)
+        .map(([key, value]) => `<strong>${key}:</strong> ${value}`)
+        .join('<br>');
+}
+
+function exportCSV() {
+    if (!recordedData.length) {
+        logMessage("No data to export", 'warning');
+        return;
+    }
+
+    const csv = Papa.unparse(recordedData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    
+    link.href = URL.createObjectURL(blob);
+    link.download = `eye-tracking-data-${timestamp}.csv`;
+    link.style.display = 'none';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    logMessage("Data exported successfully", 'success');
+}
+
+function clearData() {
+    if (!recordedData.length) {
+        logMessage("No data to clear", 'warning');
+        return;
+    }
+
+    recordedData = [];
+    updateCharts();
+    updateUIState(false);
+    logMessage("Data cleared", 'success');
+}
+
+function handleCalibrationFailure() {
+    isCalibrating = false;
+    tracking = false;
+    dataCollectionReady = false;
+    
+    if (calibrationAttempts < CONFIG.MAX_RECOVERY_ATTEMPTS) {
+        setTimeout(() => {
+            logMessage("Retrying calibration...", 'info');
+            startTracking();
+        }, CONFIG.RECOVERY_DELAY);
+    } else {
+        logMessage("Maximum calibration attempts reached. Please refresh the page.", 'error');
+        updateUIState(false);
+    }
+}
+
+function handleError(type, error) {
+    stopTracking();
+    updateUIState(false);
+    
+    switch (type) {
+        case 'CAMERA_DENIED':
+            logMessage("Please allow camera access and refresh the page", 'error');
+            break;
+        case 'API_ERROR':
+            logMessage(`API Error: ${error}. Please refresh the page.`, 'error');
+            break;
+        case 'INITIALIZATION_ERROR':
+            logMessage(`Initialization failed: ${error.message}`, 'error');
+            break;
+        default:
+            logMessage(`Unknown error: ${error}`, 'error');
+    }
+}
+
 // Initialize GazeCloud API
 function initializeGazeCloudAPI() {
     if (typeof GazeCloudAPI === 'undefined') {
@@ -292,6 +481,7 @@ function resetDataStructures() {
 window.addEventListener('load', async () => {
     try {
         await initDB();
+        initializeCharts();
         loadSessions();
         logMessage("Application initialized successfully", 'success');
     } catch (error) {
