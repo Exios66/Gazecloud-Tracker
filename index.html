@@ -7,7 +7,10 @@
   <meta http-equiv="Permissions-Policy" content="interest-cohort=()">
   <title>Eye Tracking Recorder & Analysis Dashboard</title>
   <!-- GazeCloudAPI for live tracking -->
-  <script src="https://api.gazerecorder.com/GazeCloudAPI.js" crossorigin="anonymous"></script>
+  <script src="https://api.gazerecorder.com/GazeCloudAPI.js" 
+          crossorigin="anonymous" 
+          onerror="handleScriptError('GazeCloudAPI')" 
+          async></script>
   <!-- Chart.js for visualizations -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js" integrity="sha512-TK03gH1Gm//td4nG9lGFuIxFWBViON6gWlBe1K+DGdO0T48V1XJXDzcK0pAcn0OvykthLJf8pnwU4YHqCZMZw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <!-- PapaParse for CSV processing -->
@@ -1388,7 +1391,7 @@
     }
 
     // Update startTracking function to initialize session
-    function startTracking() {
+    async function startTracking() {
       try {
         if (tracking) {
           stopTracking();
@@ -1398,6 +1401,13 @@
         if (calibrationAttempts >= MAX_CALIBRATION_ATTEMPTS) {
           logMessage(`❌ Too many calibration attempts. Please refresh the page and try again.`, 'error');
           return;
+        }
+
+        // Wait for GazeCloud API to be available
+        try {
+          await waitForGazeCloud();
+        } catch (error) {
+          throw new Error("GazeCloud API not available: " + error.message);
         }
 
         // Initialize new session
@@ -1418,7 +1428,15 @@
         }
 
         try {
-          GazeCloudAPI.StartEyeTracking();
+          await new Promise((resolve, reject) => {
+            try {
+              GazeCloudAPI.StartEyeTracking();
+              resolve();
+            } catch (error) {
+              reject(error);
+            }
+          });
+          
           logMessage("🎯 Starting eye tracking system...", 'info');
           calibrationAttempts++;
         } catch (error) {
@@ -1802,11 +1820,13 @@
     function initializeGazeTracking() {
       try {
         // Configure GazeCloud API settings
-        GazeCloudAPI.APIKey = "GazeCloudAPI-Key"; // Replace with your API key
-        GazeCloudAPI.CalibrationType = 5; // 5-point calibration
+        GazeCloudAPI.APIKey = ""; // Empty API key for public access
+        GazeCloudAPI.CalibrationType = 5;
         GazeCloudAPI.ShowVideo = true;
         GazeCloudAPI.UseClickRecalibration = true;
-        GazeCloudAPI.Debug = DEBUG;
+        GazeCloudAPI.Debug = true;
+        GazeCloudAPI.CrossOrigin = true;
+        GazeCloudAPI.Protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         
         // Set up error handling callbacks
         GazeCloudAPI.OnCamDenied = function() {
@@ -1868,6 +1888,48 @@
         });
         return false;
       }
+    }
+
+    // Add at the start of your script section
+    function handleScriptError(scriptName) {
+      console.error(`Failed to load ${scriptName} script`);
+      document.getElementById("liveData").innerHTML = `
+        <div class="calibration-message error">
+          <h3>❌ Script Loading Error</h3>
+          <p>Failed to load ${scriptName}. Please:</p>
+          <ol>
+            <li>Check your internet connection</li>
+            <li>Disable any content blockers</li>
+            <li>Try refreshing the page</li>
+          </ol>
+        </div>
+      `;
+    }
+
+    // Add before your existing initialization code
+    function waitForGazeCloud() {
+      return new Promise((resolve, reject) => {
+        if (typeof GazeCloudAPI !== 'undefined') {
+          resolve();
+          return;
+        }
+
+        let attempts = 0;
+        const maxAttempts = 20;
+        const interval = setInterval(() => {
+          if (typeof GazeCloudAPI !== 'undefined') {
+            clearInterval(interval);
+            resolve();
+            return;
+          }
+
+          attempts++;
+          if (attempts >= maxAttempts) {
+            clearInterval(interval);
+            reject(new Error('GazeCloudAPI failed to load'));
+          }
+        }, 500);
+      });
     }
   </script>
 </head>
