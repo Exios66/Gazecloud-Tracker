@@ -523,60 +523,7 @@
       });
     }
 
-    // Initialize data collection system
-    function initializeDataCollection() {
-      try {
-        dataCollectionReady = false;
-        recordedData = [];
-        lastDataPoint = null;
-        
-        // Configure GazeCloud API settings with proper initialization
-        if (typeof GazeCloudAPI === 'undefined') {
-          throw new Error("GazeCloud API not loaded");
-        }
-
-        // Reset all data structures first
-        resetDataStructures();
-
-        // Set required API configuration
-        GazeCloudAPI.APIKey = "GazeCloudAPI-Key";
-        GazeCloudAPI.CalibrationType = 5; // 5 point calibration
-        GazeCloudAPI.ShowVideo = true;
-        GazeCloudAPI.UseClickRecalibration = true;
-
-        // Set up all necessary callbacks
-        GazeCloudAPI.OnCalibrationComplete = function() {
-          isCalibrating = false;
-          tracking = true;
-          calibrationAttempts = 0;
-          logMessage("Calibration completed successfully!", 'success');
-          updateUIState(true);
-        };
-        
-        GazeCloudAPI.OnCamDenied = function() {
-          handleGazeError("Camera access was denied. Please check your camera permissions.");
-          updateUIState(false);
-        };
-
-        GazeCloudAPI.OnError = function(msg) {
-          handleGazeError("GazeCloud API Error: " + msg);
-          updateUIState(false);
-        };
-
-        GazeCloudAPI.OnResult = function(GazeData) {
-          handleGazeData(GazeData);
-        };
-
-        dataCollectionReady = true;
-        return true;
-      } catch (error) {
-        console.error("Error initializing data collection:", error);
-        logMessage("Failed to initialize data collection: " + error.message, 'error');
-        return false;
-      }
-    }
-
-    // Add the missing resetDataStructures function
+    // Add the resetDataStructures function before it's used
     function resetDataStructures() {
       try {
         // Clear recorded data array
@@ -626,6 +573,60 @@
         console.error("Error in resetDataStructures:", error);
         logMessage("Error resetting data structures: " + error.message, 'error');
         throw error; // Re-throw to be caught by the calling function
+      }
+    }
+
+    // Initialize data collection system
+    function initializeDataCollection() {
+      try {
+        dataCollectionReady = false;
+        recordedData = [];
+        lastDataPoint = null;
+        
+        // Configure GazeCloud API settings with proper initialization
+        if (typeof GazeCloudAPI === 'undefined') {
+          throw new Error("GazeCloud API not loaded");
+        }
+
+        // Reset all data structures first
+        resetDataStructures();
+
+        // Set required API configuration
+        GazeCloudAPI.APIKey = "GazeCloudAPI-Key";
+        GazeCloudAPI.CalibrationType = 5; // 5 point calibration
+        GazeCloudAPI.ShowVideo = true;
+        GazeCloudAPI.UseClickRecalibration = true;
+
+        // Set up all necessary callbacks
+        GazeCloudAPI.OnCalibrationComplete = function() {
+          isCalibrating = false;
+          tracking = true;
+          calibrationAttempts = 0;
+          logMessage("Calibration completed successfully!", 'success');
+          updateUIState(true);
+        };
+        
+        GazeCloudAPI.OnCamDenied = function() {
+          handleGazeError("Camera access was denied. Please check your camera permissions.");
+          updateUIState(false);
+        };
+
+        GazeCloudAPI.OnError = function(msg) {
+          handleGazeError("GazeCloud API Error: " + msg);
+          updateUIState(false);
+        };
+
+        GazeCloudAPI.OnResult = function(GazeData) {
+          handleGazeData(GazeData);
+        };
+
+        dataCollectionReady = true;
+        logMessage("Data collection system initialized successfully", 'success');
+        return true;
+      } catch (error) {
+        console.error("Error initializing data collection:", error);
+        logMessage("Failed to initialize data collection: " + error.message, 'error');
+        return false;
       }
     }
 
