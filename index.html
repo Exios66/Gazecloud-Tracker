@@ -1001,18 +1001,43 @@
               updateUIState(false);
             };
 
-            GazeCloudAPI.OnError = function(msg) {
-              debugLog('GazeCloud API error', msg);
-              apiState = API_STATES.ERROR;
-              if (msg.includes("connection lost") || msg.includes("WebSocket") || msg.includes("network")) {
-                handleConnectionLost();
-              } else {
-                handleGazeError({
-                  code: ERROR_CODES.API_LOAD_TIMEOUT,
-                  message: "GazeCloud API Error: " + msg
-                });
+            GazeCloudAPI.OnError = function(error) {
+              debugLog('GazeCloud API error received:', error);
+              
+              let errorMessage = "Unknown GazeCloud API Error";
+              let errorCode = ERROR_CODES.INITIALIZATION_ERROR;
+              
+              try {
+                // Handle different error formats
+                if (typeof error === 'object') {
+                  if (error instanceof Error) {
+                    errorMessage = error.message;
+                  } else if (error !== null) {
+                    errorMessage = JSON.stringify(error, Object.getOwnPropertyNames(error));
+                  }
+                } else if (typeof error === 'string') {
+                  errorMessage = error;
+                }
+                
+                // Determine error type
+                if (errorMessage.toLowerCase().includes('camera')) {
+                  errorCode = ERROR_CODES.CAMERA_DENIED;
+                } else if (errorMessage.toLowerCase().includes('connection') || 
+                          errorMessage.toLowerCase().includes('websocket')) {
+                  errorCode = ERROR_CODES.CONNECTION_ERROR;
+                }
+                
+                debugLog('Processed error:', { code: errorCode, message: errorMessage });
+              } catch (e) {
+                console.error('Error processing GazeCloud error:', e);
+                errorMessage = "Failed to process error details";
               }
-              updateUIState(false);
+              
+              handleGazeError({
+                code: errorCode,
+                message: `GazeCloud API Error: ${errorMessage}`,
+                originalError: error
+              });
             };
 
             GazeCloudAPI.OnConnect = function() {
@@ -1528,6 +1553,13 @@
         isCalibrating = false;
         dataCollectionReady = false;
         
+        // Enhanced error logging
+        debugLog('Handling gaze error:', {
+          code: error.code,
+          message: error.message,
+          originalError: error.originalError
+        });
+        
         // Reset calibration attempts if it's a camera error
         if (error.code === ERROR_CODES.CAMERA_DENIED) {
           calibrationAttempts = 0;
@@ -1555,6 +1587,19 @@
               <p>Once you've checked these, click "Start Tracking" to try again.</p>
             </div>
           `,
+          [ERROR_CODES.CONNECTION_ERROR]: `
+            <div class="calibration-message error">
+              <h3>❌ Connection Error</h3>
+              <p>Lost connection to the eye tracking service. Please:</p>
+              <ol>
+                <li>Check your internet connection</li>
+                <li>Ensure you have a stable network connection</li>
+                <li>Try refreshing the page</li>
+                <li>If the problem persists, try again in a few minutes</li>
+              </ol>
+              <p>Technical details: ${error.message}</p>
+            </div>
+          `,
           [ERROR_CODES.API_NOT_FOUND]: `
             <div class="calibration-message error">
               <h3>❌ Connection Error</h3>
@@ -1564,6 +1609,7 @@
                 <li>Disable any ad blockers or privacy extensions</li>
                 <li>Try refreshing the page</li>
               </ol>
+              <p>Technical details: ${error.message}</p>
             </div>
           `,
           [ERROR_CODES.INITIALIZATION_ERROR]: `
@@ -1571,11 +1617,12 @@
               <h3>❌ Initialization Error</h3>
               <p>The eye tracking system failed to initialize. Please ensure:</p>
               <ol>
-                <li>Your browser is up to date</li>
-                <li>You're using a supported browser (Chrome recommended)</li>
+                <li>Your browser is up to date (Chrome recommended)</li>
+                <li>You have a working webcam</li>
                 <li>Your system meets the minimum requirements</li>
                 <li>Try clearing your browser cache and cookies</li>
               </ol>
+              <p>Technical details: ${error.message}</p>
             </div>
           `,
           'default': `
@@ -1588,7 +1635,7 @@
                 <li>Make sure your face is clearly visible</li>
                 <li>Try refreshing the page</li>
               </ol>
-              <p>Error details: ${error.message || 'Unknown error'}</p>
+              <p>Technical details: ${error.message}</p>
             </div>
           `
         };
@@ -1599,7 +1646,8 @@
 
         // If it's a critical error, suggest page refresh
         if (error.code === ERROR_CODES.API_NOT_FOUND || 
-            error.code === ERROR_CODES.API_LOAD_TIMEOUT) {
+            error.code === ERROR_CODES.API_LOAD_TIMEOUT ||
+            error.code === ERROR_CODES.CONNECTION_ERROR) {
           setTimeout(() => {
             if (confirm('Would you like to refresh the page to try again?')) {
               window.location.reload();
@@ -1613,6 +1661,7 @@
           <div class="calibration-message error">
             <h3>❌ Critical Error</h3>
             <p>A critical error occurred. Please refresh the page and try again.</p>
+            <p>Error details: ${e.message}</p>
           </div>
         `;
       }
@@ -1769,9 +1818,41 @@
         };
 
         GazeCloudAPI.OnError = function(error) {
+          debugLog('GazeCloud API error received:', error);
+          
+          let errorMessage = "Unknown GazeCloud API Error";
+          let errorCode = ERROR_CODES.INITIALIZATION_ERROR;
+          
+          try {
+            // Handle different error formats
+            if (typeof error === 'object') {
+              if (error instanceof Error) {
+                errorMessage = error.message;
+              } else if (error !== null) {
+                errorMessage = JSON.stringify(error, Object.getOwnPropertyNames(error));
+              }
+            } else if (typeof error === 'string') {
+              errorMessage = error;
+            }
+            
+            // Determine error type
+            if (errorMessage.toLowerCase().includes('camera')) {
+              errorCode = ERROR_CODES.CAMERA_DENIED;
+            } else if (errorMessage.toLowerCase().includes('connection') || 
+                      errorMessage.toLowerCase().includes('websocket')) {
+              errorCode = ERROR_CODES.CONNECTION_ERROR;
+            }
+            
+            debugLog('Processed error:', { code: errorCode, message: errorMessage });
+          } catch (e) {
+            console.error('Error processing GazeCloud error:', e);
+            errorMessage = "Failed to process error details";
+          }
+          
           handleGazeError({
-            code: ERROR_CODES.API_LOAD_TIMEOUT,
-            message: error || "An unknown error occurred with the GazeCloud API."
+            code: errorCode,
+            message: `GazeCloud API Error: ${errorMessage}`,
+            originalError: error
           });
         };
 
