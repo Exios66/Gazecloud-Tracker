@@ -73,380 +73,534 @@
     /********** LIVE EYE TRACKING SECTION **********/
     let recordedData = [];
     let tracking = false;
+    let lastUpdate = 0;
+    const UPDATE_INTERVAL = 50; // ms
+    const MAX_RECORDED_POINTS = 10000;
 
     // Append messages to the debug log (both on-page and in console)
     function logMessage(message) {
-      const logDiv = document.getElementById("debugLog");
-      const timestamp = new Date().toLocaleTimeString();
-      logDiv.textContent += `[${timestamp}] ${message}\n`;
-      logDiv.scrollTop = logDiv.scrollHeight;
-      console.log(message);
+      try {
+        const logDiv = document.getElementById("debugLog");
+        const timestamp = new Date().toLocaleTimeString();
+        logDiv.textContent += `[${timestamp}] ${message}\n`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+        console.log(message);
+      } catch (error) {
+        console.error("Error in logMessage:", error);
+      }
     }
 
     // Update the live data display with the most recent gaze values
     function updateLiveData(data) {
-      const liveDiv = document.getElementById("liveData");
-      liveDiv.innerHTML = `
-        <strong>Latest Gaze Data:</strong><br>
-        State: ${data.state}<br>
-        X: ${data.docX || data.x || 'N/A'}<br>
-        Y: ${data.docY || data.y || 'N/A'}<br>
-        Timestamp: ${data.time || data.timestamp}
-      `;
+      try {
+        const now = Date.now();
+        if (now - lastUpdate < UPDATE_INTERVAL) return;
+        lastUpdate = now;
+
+        const liveDiv = document.getElementById("liveData");
+        if (!liveDiv) return;
+
+        liveDiv.innerHTML = `
+          <strong>Latest Gaze Data:</strong><br>
+          State: ${data.state || 'N/A'}<br>
+          X: ${data.docX || data.x || 'N/A'}<br>
+          Y: ${data.docY || data.y || 'N/A'}<br>
+          Timestamp: ${data.time || data.timestamp || 'N/A'}
+        `;
+      } catch (error) {
+        console.error("Error in updateLiveData:", error);
+      }
     }
 
     // Start eye tracking and set up callbacks
     function startTracking() {
-      if (tracking) {
-        logMessage("Tracking is already running.");
-        return;
+      try {
+        if (tracking) {
+          stopTracking(); // Force stop if already running
+        }
+
+        // Clear any existing charts
+        if (window.eyeMovementChart) window.eyeMovementChart.destroy();
+        if (window.pupilDilationChart) window.pupilDilationChart.destroy();
+        if (window.headMovementChart) window.headMovementChart.destroy();
+
+        recordedData = []; // Reset recorded data
+
+        // Callback: record gaze data, update live view and log details
+        GazeCloudAPI.OnResult = function(GazeData) {
+          try {
+            if (!GazeData || typeof GazeData !== 'object') {
+              logMessage("Invalid gaze data received");
+              return;
+            }
+
+            recordedData.push(GazeData);
+            if (recordedData.length > MAX_RECORDED_POINTS) {
+              recordedData = recordedData.slice(-MAX_RECORDED_POINTS);
+              logMessage("Trimming recorded data to prevent memory issues");
+            }
+
+            updateLiveData(GazeData);
+            logMessage("Gaze Data Received: " + JSON.stringify(GazeData));
+          } catch (error) {
+            console.error("Error in OnResult callback:", error);
+          }
+        };
+
+        // Optional callbacks for calibration, errors, and camera denial
+        GazeCloudAPI.OnCalibrationComplete = function() {
+          logMessage("Gaze calibration complete.");
+        };
+        GazeCloudAPI.OnCamDenied = function() {
+          logMessage("Camera access was denied.");
+          tracking = false;
+        };
+        GazeCloudAPI.OnError = function(msg) {
+          logMessage("GazeCloudAPI Error: " + msg);
+          tracking = false;
+        };
+
+        // Enable click recalibration if needed
+        GazeCloudAPI.UseClickRecalibration = true;
+
+        // Begin eye tracking
+        GazeCloudAPI.StartEyeTracking();
+        tracking = true;
+        logMessage("Started eye tracking.");
+      } catch (error) {
+        console.error("Error in startTracking:", error);
+        tracking = false;
       }
-      recordedData = []; // Reset recorded data
-
-      // Callback: record gaze data, update live view and log details
-      GazeCloudAPI.OnResult = function(GazeData) {
-        recordedData.push(GazeData);
-        updateLiveData(GazeData);
-        logMessage("Gaze Data Received: " + JSON.stringify(GazeData));
-      };
-
-      // Optional callbacks for calibration, errors, and camera denial
-      GazeCloudAPI.OnCalibrationComplete = function() {
-        logMessage("Gaze calibration complete.");
-      };
-      GazeCloudAPI.OnCamDenied = function() {
-        logMessage("Camera access was denied.");
-      };
-      GazeCloudAPI.OnError = function(msg) {
-        logMessage("GazeCloudAPI Error: " + msg);
-      };
-
-      // Enable click recalibration if needed
-      GazeCloudAPI.UseClickRecalibration = true;
-
-      // Begin eye tracking
-      GazeCloudAPI.StartEyeTracking();
-      tracking = true;
-      logMessage("Started eye tracking.");
     }
 
     // Stop the eye tracking process
     function stopTracking() {
-      if (!tracking) {
-        logMessage("Tracking is not active.");
-        return;
+      try {
+        if (!tracking) {
+          logMessage("Tracking is not active.");
+          return;
+        }
+        GazeCloudAPI.StopEyeTracking();
+        tracking = false;
+        logMessage("Stopped eye tracking.");
+      } catch (error) {
+        console.error("Error in stopTracking:", error);
+        tracking = false;
       }
-      GazeCloudAPI.StopEyeTracking();
-      tracking = false;
-      logMessage("Stopped eye tracking.");
     }
 
-    // Export the recorded gaze data as a CSV file.
-    // The export now outputs a CSV with columns: timestamp, x, y, state.
+    // Export the recorded gaze data as a CSV file
     function exportCSV() {
-      if (recordedData.length === 0) {
-        logMessage("No data recorded to export.");
-        return;
+      try {
+        if (recordedData.length === 0) {
+          logMessage("No data recorded to export.");
+          return;
+        }
+        let csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += "timestamp,x,y,state,confidence,pupilD,HeadX,HeadY,HeadZ,HeadYaw,HeadPitch,HeadRoll\n";
+        
+        recordedData.forEach(function(data) {
+          const timestamp = data.time || data.timestamp || '';
+          const x = data.docX !== undefined ? data.docX : data.x || '';
+          const y = data.docY !== undefined ? data.docY : data.y || '';
+          const state = data.state || '';
+          const confidence = data.confidence || '';
+          const pupilD = data.pupilD || '';
+          const HeadX = data.HeadX || '';
+          const HeadY = data.HeadY || '';
+          const HeadZ = data.HeadZ || '';
+          const HeadYaw = data.HeadYaw || '';
+          const HeadPitch = data.HeadPitch || '';
+          const HeadRoll = data.HeadRoll || '';
+          
+          csvContent += `${timestamp},${x},${y},${state},${confidence},${pupilD},${HeadX},${HeadY},${HeadZ},${HeadYaw},${HeadPitch},${HeadRoll}\n`;
+        });
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "gaze_data_" + Date.now() + ".csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        logMessage("CSV export completed.");
+      } catch (error) {
+        console.error("Error in exportCSV:", error);
+        logMessage("Failed to export CSV: " + error.message);
       }
-      let csvContent = "data:text/csv;charset=utf-8,";
-      csvContent += "timestamp,x,y,state\n";
-      recordedData.forEach(function(data) {
-        // Use time (from live tracking) or timestamp if available, and use docX/docY fallback.
-        const timestamp = data.time || data.timestamp;
-        const x = data.docX !== undefined ? data.docX : data.x;
-        const y = data.docY !== undefined ? data.docY : data.y;
-        csvContent += `${timestamp},${x},${y},${data.state}\n`;
-      });
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", "gaze_data_" + Date.now() + ".csv");
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      logMessage("CSV export initiated.");
     }
 
-    // Clear recorded data and reset the live display.
+    // Clear recorded data and reset the live display
     function clearData() {
-      recordedData = [];
-      document.getElementById("liveData").innerHTML = "<em>Live gaze data will appear here...</em>";
-      logMessage("Cleared recorded data.");
+      try {
+        recordedData = [];
+        document.getElementById("liveData").innerHTML = "<em>Live gaze data will appear here...</em>";
+        logMessage("Cleared recorded data.");
+      } catch (error) {
+        console.error("Error in clearData:", error);
+      }
     }
 
     /********** CSV ANALYSIS DASHBOARD SECTION **********/
-    // Compute basic statistics from CSV data.
+    // Compute basic statistics from CSV data
     function computeBasicStats(data) {
-      const validConfidence = data.filter(d => d.confidence !== undefined && d.confidence !== null && d.confidence !== '');
-      const validPupilData = data.filter(d => d.pupilD !== undefined && d.pupilD !== null && d.pupilD !== '');
-      const validHeadData = data.filter(d => 
-        d.HeadX !== undefined && d.HeadY !== undefined && d.HeadZ !== undefined &&
-        d.HeadX !== null && d.HeadY !== null && d.HeadZ !== null &&
-        d.HeadX !== '' && d.HeadY !== '' && d.HeadZ !== ''
-      );
+      try {
+        const validConfidence = data.filter(d => d.confidence !== undefined && d.confidence !== null && d.confidence !== '');
+        const validPupilData = data.filter(d => d.pupilD !== undefined && d.pupilD !== null && d.pupilD !== '');
+        const validHeadData = data.filter(d => 
+          d.HeadX !== undefined && d.HeadY !== undefined && d.HeadZ !== undefined &&
+          d.HeadX !== null && d.HeadY !== null && d.HeadZ !== null &&
+          d.HeadX !== '' && d.HeadY !== '' && d.HeadZ !== ''
+        );
 
-      let avgConfidence = validConfidence.length ? (mean(validConfidence.map(d => d.confidence)) * 100).toFixed(1) + '%' : 'N/A';
-      let pupilMean = validPupilData.length ? mean(validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
-      let pupilMin = validPupilData.length ? Math.min(...validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
-      let pupilMax = validPupilData.length ? Math.max(...validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
+        let avgConfidence = validConfidence.length ? (mean(validConfidence.map(d => d.confidence)) * 100).toFixed(1) + '%' : 'N/A';
+        let pupilMean = validPupilData.length ? mean(validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
+        let pupilMin = validPupilData.length ? Math.min(...validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
+        let pupilMax = validPupilData.length ? Math.max(...validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
+        let pupilStdDev = validPupilData.length ? standardDeviation(validPupilData.map(d => d.pupilD)).toFixed(2) : 'N/A';
 
-      let headXMean = validHeadData.length ? mean(validHeadData.map(d => d.HeadX)).toFixed(1) : 'N/A';
-      let headYMean = validHeadData.length ? mean(validHeadData.map(d => d.HeadY)).toFixed(1) : 'N/A';
-      let headZMean = validHeadData.length ? mean(validHeadData.map(d => d.HeadZ)).toFixed(1) : 'N/A';
+        let headXMean = validHeadData.length ? mean(validHeadData.map(d => d.HeadX)).toFixed(1) : 'N/A';
+        let headYMean = validHeadData.length ? mean(validHeadData.map(d => d.HeadY)).toFixed(1) : 'N/A';
+        let headZMean = validHeadData.length ? mean(validHeadData.map(d => d.HeadZ)).toFixed(1) : 'N/A';
 
-      const validHeadYaw = data.filter(d => d.HeadYaw !== undefined && d.HeadYaw !== null && d.HeadYaw !== '');
-      const validHeadPitch = data.filter(d => d.HeadPitch !== undefined && d.HeadPitch !== null && d.HeadPitch !== '');
-      const validHeadRoll = data.filter(d => d.HeadRoll !== undefined && d.HeadRoll !== null && d.HeadRoll !== '');
+        const validHeadYaw = data.filter(d => d.HeadYaw !== undefined && d.HeadYaw !== null && d.HeadYaw !== '');
+        const validHeadPitch = data.filter(d => d.HeadPitch !== undefined && d.HeadPitch !== null && d.HeadPitch !== '');
+        const validHeadRoll = data.filter(d => d.HeadRoll !== undefined && d.HeadRoll !== null && d.HeadRoll !== '');
 
-      let headYawMean = validHeadYaw.length ? mean(validHeadYaw.map(d => d.HeadYaw)).toFixed(1) : 'N/A';
-      let headPitchMean = validHeadPitch.length ? mean(validHeadPitch.map(d => d.HeadPitch)).toFixed(1) : 'N/A';
-      let headRollMean = validHeadRoll.length ? mean(validHeadRoll.map(d => d.HeadRoll)).toFixed(1) : 'N/A';
+        let headYawMean = validHeadYaw.length ? mean(validHeadYaw.map(d => d.HeadYaw)).toFixed(1) : 'N/A';
+        let headPitchMean = validHeadPitch.length ? mean(validHeadPitch.map(d => d.HeadPitch)).toFixed(1) : 'N/A';
+        let headRollMean = validHeadRoll.length ? mean(validHeadRoll.map(d => d.HeadRoll)).toFixed(1) : 'N/A';
 
-      return {
-        "Total Data Points": data.length,
-        "Valid Data Points": validConfidence.length,
-        "Average Confidence": avgConfidence,
-        "Pupil Diameter (mm)": {
-          "Mean": pupilMean,
-          "Min": pupilMin,
-          "Max": pupilMax
-        },
-        "Head Position": {
-          "X Mean": headXMean,
-          "Y Mean": headYMean,
-          "Z Mean": headZMean
-        },
-        "Head Rotation (degrees)": {
-          "Yaw": headYawMean,
-          "Pitch": headPitchMean,
-          "Roll": headRollMean
-        }
-      };
-    }
-
-    // Basic helper functions
-    function mean(arr) {
-      if (!arr.length) return 0;
-      return arr.reduce((a, b) => a + b, 0) / arr.length;
-    }
-    function variance(arr) {
-      const m = mean(arr);
-      return mean(arr.map(x => (x - m) ** 2));
-    }
-    function standardDeviation(arr) {
-      return Math.sqrt(variance(arr));
-    }
-
-    // Update the statistics display
-    function updateBasicStats(stats) {
-      const container = document.getElementById('basicStats');
-      container.innerHTML = '';
-      for (const [key, value] of Object.entries(stats)) {
-        const card = document.createElement('div');
-        card.className = 'stat-card';
-        if (typeof value === 'object') {
-          let content = `<h3>${key}</h3>`;
-          for (const [subKey, subValue] of Object.entries(value)) {
-            content += `<p><strong>${subKey}:</strong> ${subValue}</p>`;
+        return {
+          "Total Data Points": data.length,
+          "Valid Data Points": validConfidence.length,
+          "Average Confidence": avgConfidence,
+          "Pupil Diameter (mm)": {
+            "Mean": pupilMean,
+            "Min": pupilMin,
+            "Max": pupilMax,
+            "StdDev": pupilStdDev
+          },
+          "Head Position": {
+            "X Mean": headXMean,
+            "Y Mean": headYMean,
+            "Z Mean": headZMean
+          },
+          "Head Rotation (degrees)": {
+            "Yaw": headYawMean,
+            "Pitch": headPitchMean,
+            "Roll": headRollMean
           }
-          card.innerHTML = content;
-        } else {
-          card.innerHTML = `<h3>${key}</h3><p>${value}</p>`;
-        }
-        container.appendChild(card);
+        };
+      } catch (error) {
+        console.error("Error in computeBasicStats:", error);
+        return {};
       }
     }
 
-    // Create a scatter chart for eye movement trajectory.
-    // Supports CSV files that use either "x"/"y" or "docX"/"docY".
-    function createEyeMovementChart(data) {
-      const ctx = document.getElementById('eyeMovementChart').getContext('2d');
-      if (window.eyeMovementChart) window.eyeMovementChart.destroy();
+    // Basic helper functions with error handling
+    function mean(arr) {
+      try {
+        if (!Array.isArray(arr) || !arr.length) return 0;
+        return arr.reduce((a, b) => a + b, 0) / arr.length;
+      } catch (error) {
+        console.error("Error in mean calculation:", error);
+        return 0;
+      }
+    }
 
-      // Filter for valid gaze points using x/docX and y/docY.
-      const validData = data.filter(d =>
-        ((d.x !== undefined && d.x !== '' && d.x !== null) || (d.docX !== undefined && d.docX !== '' && d.docX !== null)) &&
-        ((d.y !== undefined && d.y !== '' && d.y !== null) || (d.docY !== undefined && d.docY !== '' && d.docY !== null)) &&
-        d.timestamp
-      );
+    function variance(arr) {
+      try {
+        if (!Array.isArray(arr) || !arr.length) return 0;
+        const m = mean(arr);
+        return mean(arr.map(x => (x - m) ** 2));
+      } catch (error) {
+        console.error("Error in variance calculation:", error);
+        return 0;
+      }
+    }
 
-      if (!validData.length) return;
+    function standardDeviation(arr) {
+      try {
+        return Math.sqrt(variance(arr));
+      } catch (error) {
+        console.error("Error in standardDeviation calculation:", error);
+        return 0;
+      }
+    }
 
-      // Use whichever fields are available.
-      const points = validData.map(d => ({
-        x: d.x !== undefined && d.x !== '' ? d.x : d.docX,
-        y: d.y !== undefined && d.y !== '' ? d.y : d.docY,
-        timestamp: new Date(d.timestamp).getTime()
-      }));
-
-      // Create a color gradient based on timestamp progress.
-      const startTime = points[0].timestamp;
-      const endTime = points[points.length - 1].timestamp;
-
-      points.forEach(p => {
-        const progress = (p.timestamp - startTime) / (endTime - startTime);
-        p.color = `hsl(${200 + progress * 160}, 70%, 50%)`;
-      });
-
-      window.eyeMovementChart = new Chart(ctx, {
-        type: 'scatter',
-        data: {
-          datasets: [{
-            label: 'Gaze Path',
-            data: points,
-            backgroundColor: points.map(p => p.color),
-            pointRadius: 4,
-            pointHoverRadius: 6
-          }]
-        },
-        options: {
-          scales: {
-            y: {
-              reverse: true,
-              title: { display: true, text: 'Y Position (pixels)' }
-            },
-            x: {
-              title: { display: true, text: 'X Position (pixels)' }
+    // Update the statistics display with error handling
+    function updateBasicStats(stats) {
+      try {
+        const container = document.getElementById('basicStats');
+        if (!container) return;
+        
+        container.innerHTML = '';
+        for (const [key, value] of Object.entries(stats)) {
+          const card = document.createElement('div');
+          card.className = 'stat-card';
+          if (typeof value === 'object') {
+            let content = `<h3>${key}</h3>`;
+            for (const [subKey, subValue] of Object.entries(value)) {
+              content += `<p><strong>${subKey}:</strong> ${subValue}</p>`;
             }
+            card.innerHTML = content;
+          } else {
+            card.innerHTML = `<h3>${key}</h3><p>${value}</p>`;
+          }
+          container.appendChild(card);
+        }
+      } catch (error) {
+        console.error("Error in updateBasicStats:", error);
+      }
+    }
+
+    // Create visualization charts with error handling
+    function createEyeMovementChart(data) {
+      try {
+        const ctx = document.getElementById('eyeMovementChart').getContext('2d');
+        if (window.eyeMovementChart) window.eyeMovementChart.destroy();
+
+        const validData = data.filter(d =>
+          ((d.x !== undefined && d.x !== '' && d.x !== null) || (d.docX !== undefined && d.docX !== '' && d.docX !== null)) &&
+          ((d.y !== undefined && d.y !== '' && d.y !== null) || (d.docY !== undefined && d.docY !== '' && d.docY !== null)) &&
+          d.timestamp
+        );
+
+        if (!validData.length) {
+          logMessage("No valid data for eye movement chart");
+          return;
+        }
+
+        const points = validData.map(d => ({
+          x: d.x !== undefined && d.x !== '' ? d.x : d.docX,
+          y: d.y !== undefined && d.y !== '' ? d.y : d.docY,
+          timestamp: new Date(d.timestamp).getTime()
+        }));
+
+        const startTime = points[0].timestamp;
+        const endTime = points[points.length - 1].timestamp;
+
+        points.forEach(p => {
+          const progress = (p.timestamp - startTime) / (endTime - startTime);
+          p.color = `hsl(${200 + progress * 160}, 70%, 50%)`;
+        });
+
+        window.eyeMovementChart = new Chart(ctx, {
+          type: 'scatter',
+          data: {
+            datasets: [{
+              label: 'Gaze Path',
+              data: points,
+              backgroundColor: points.map(p => p.color),
+              pointRadius: 4,
+              pointHoverRadius: 6
+            }]
           },
-          plugins: {
-            tooltip: {
-              callbacks: {
-                label: function(context) {
-                  const point = context.raw;
-                  return [
-                    `Position: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`,
-                    `Time: ${new Date(point.timestamp).toLocaleTimeString()}`
-                  ];
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: {
+                reverse: true,
+                title: { display: true, text: 'Y Position (pixels)' }
+              },
+              x: {
+                title: { display: true, text: 'X Position (pixels)' }
+              }
+            },
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    const point = context.raw;
+                    return [
+                      `Position: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`,
+                      `Time: ${new Date(point.timestamp).toLocaleTimeString()}`
+                    ];
+                  }
                 }
               }
             }
           }
-        }
-      });
+        });
+      } catch (error) {
+        console.error("Error creating eye movement chart:", error);
+        logMessage("Failed to create eye movement chart");
+      }
     }
 
-    // Create a line chart for pupil dilation over time.
     function createPupilDilationChart(data) {
-      const ctx = document.getElementById('pupilDilationChart').getContext('2d');
-      if (window.pupilDilationChart) window.pupilDilationChart.destroy();
+      try {
+        const ctx = document.getElementById('pupilDilationChart').getContext('2d');
+        if (window.pupilDilationChart) window.pupilDilationChart.destroy();
 
-      const validData = data.filter(d => d.pupilD !== undefined && d.pupilD !== null && d.pupilD !== '' && d.timestamp);
-      const timestamps = validData.map(d => new Date(d.timestamp));
-
-      window.pupilDilationChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: timestamps,
-          datasets: [{
-            label: 'Pupil Diameter (mm)',
-            data: validData.map(d => ({ x: new Date(d.timestamp), y: d.pupilD })),
-            borderColor: 'rgba(75, 192, 192, 1)',
-            backgroundColor: 'rgba(75, 192, 192, 0.2)',
-            fill: true,
-            tension: 0.4
-          }]
-        },
-        options: {
-          scales: {
-            x: {
-              type: 'time',
-              time: { unit: 'second', displayFormats: { second: 'HH:mm:ss' } },
-              title: { display: true, text: 'Time' }
-            },
-            y: {
-              title: { display: true, text: 'Pupil Diameter (mm)' }
-            }
-          }
+        const validData = data.filter(d => d.pupilD !== undefined && d.pupilD !== null && d.pupilD !== '' && d.timestamp);
+        
+        if (!validData.length) {
+          logMessage("No valid data for pupil dilation chart");
+          return;
         }
-      });
-    }
 
-    // Create a line chart for head displacement over time.
-    function createHeadMovementChart(data) {
-      const ctx = document.getElementById('headMovementChart').getContext('2d');
-      if (window.headMovementChart) window.headMovementChart.destroy();
+        const timestamps = validData.map(d => new Date(d.timestamp));
 
-      const validData = data.filter(d =>
-        d.HeadX !== undefined && d.HeadY !== undefined && d.HeadZ !== undefined &&
-        d.HeadX !== null && d.HeadY !== null && d.HeadZ !== null &&
-        d.HeadX !== '' && d.HeadY !== '' && d.HeadZ !== '' && d.timestamp
-      );
-      const timestamps = validData.map(d => new Date(d.timestamp));
-
-      window.headMovementChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: timestamps,
-          datasets: [
-            {
-              label: 'Head X',
-              data: validData.map(d => ({ x: new Date(d.timestamp), y: d.HeadX })),
-              borderColor: 'rgba(255, 99, 132, 1)',
-              tension: 0.4
-            },
-            {
-              label: 'Head Y',
-              data: validData.map(d => ({ x: new Date(d.timestamp), y: d.HeadY })),
-              borderColor: 'rgba(54, 162, 235, 1)',
-              tension: 0.4
-            },
-            {
-              label: 'Head Z',
-              data: validData.map(d => ({ x: new Date(d.timestamp), y: d.HeadZ })),
+        window.pupilDilationChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: timestamps,
+            datasets: [{
+              label: 'Pupil Diameter (mm)',
+              data: validData.map(d => ({ x: new Date(d.timestamp), y: d.pupilD })),
               borderColor: 'rgba(75, 192, 192, 1)',
+              backgroundColor: 'rgba(75, 192, 192, 0.2)',
+              fill: true,
               tension: 0.4
-            }
-          ]
-        },
-        options: {
-          scales: {
-            x: {
-              type: 'time',
-              time: { unit: 'second', displayFormats: { second: 'HH:mm:ss' } },
-              title: { display: true, text: 'Time' }
-            },
-            y: {
-              title: { display: true, text: 'Head Position' }
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                type: 'time',
+                time: { unit: 'second', displayFormats: { second: 'HH:mm:ss' } },
+                title: { display: true, text: 'Time' }
+              },
+              y: {
+                title: { display: true, text: 'Pupil Diameter (mm)' }
+              }
             }
           }
-        }
-      });
+        });
+      } catch (error) {
+        console.error("Error creating pupil dilation chart:", error);
+        logMessage("Failed to create pupil dilation chart");
+      }
     }
 
-    // Process an uploaded CSV file and update all visualizations.
+    function createHeadMovementChart(data) {
+      try {
+        const ctx = document.getElementById('headMovementChart').getContext('2d');
+        if (window.headMovementChart) window.headMovementChart.destroy();
+
+        const validData = data.filter(d =>
+          d.HeadX !== undefined && d.HeadY !== undefined && d.HeadZ !== undefined &&
+          d.HeadX !== null && d.HeadY !== null && d.HeadZ !== null &&
+          d.HeadX !== '' && d.HeadY !== '' && d.HeadZ !== '' && d.timestamp
+        );
+
+        if (!validData.length) {
+          logMessage("No valid data for head movement chart");
+          return;
+        }
+
+        const timestamps = validData.map(d => new Date(d.timestamp));
+
+        window.headMovementChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: timestamps,
+            datasets: [
+              {
+                label: 'Head X',
+                data: validData.map(d => ({ x: new Date(d.timestamp), y: d.HeadX })),
+                borderColor: 'rgba(255, 99, 132, 1)',
+                tension: 0.4
+              },
+              {
+                label: 'Head Y',
+                data: validData.map(d => ({ x: new Date(d.timestamp), y: d.HeadY })),
+                borderColor: 'rgba(54, 162, 235, 1)',
+                tension: 0.4
+              },
+              {
+                label: 'Head Z',
+                data: validData.map(d => ({ x: new Date(d.timestamp), y: d.HeadZ })),
+                borderColor: 'rgba(75, 192, 192, 1)',
+                tension: 0.4
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                type: 'time',
+                time: { unit: 'second', displayFormats: { second: 'HH:mm:ss' } },
+                title: { display: true, text: 'Time' }
+              },
+              y: {
+                title: { display: true, text: 'Head Position' }
+              }
+            }
+          }
+        });
+      } catch (error) {
+        console.error("Error creating head movement chart:", error);
+        logMessage("Failed to create head movement chart");
+      }
+    }
+
+    // Process uploaded CSV file with enhanced error handling
     function processFile() {
-      const fileInput = document.getElementById('csvFile');
-      const file = fileInput.files[0];
-      if (file) {
+      try {
+        const fileInput = document.getElementById('csvFile');
+        const file = fileInput.files[0];
+        
+        if (!file) {
+          alert('Please select a CSV file first.');
+          return;
+        }
+
         Papa.parse(file, {
           header: true,
           dynamicTyping: true,
           skipEmptyLines: true,
           complete: function(results) {
-            if (results.errors.length > 0) {
-              console.error('CSV parsing errors:', results.errors);
-              alert('Error parsing CSV file. Please check the console for details.');
-              return;
+            try {
+              if (results.errors.length > 0) {
+                console.error('CSV parsing errors:', results.errors);
+                alert('Error parsing CSV file. Please check the console for details.');
+                return;
+              }
+
+              const data = results.data.filter(row => row.timestamp != null && row.timestamp !== '');
+              
+              if (data.length === 0) {
+                alert('No valid data found in the CSV file.');
+                return;
+              }
+
+              const stats = computeBasicStats(data);
+              updateBasicStats(stats);
+              createEyeMovementChart(data);
+              createPupilDilationChart(data);
+              createHeadMovementChart(data);
+              
+              logMessage(`Successfully processed ${data.length} data points`);
+            } catch (error) {
+              console.error("Error in Papa.parse complete callback:", error);
+              alert('Error processing CSV data: ' + error.message);
             }
-            // Filter rows that have a non-empty timestamp.
-            const data = results.data.filter(row => row.timestamp != null && row.timestamp !== '');
-            if (data.length === 0) {
-              alert('No valid data found in the CSV file.');
-              return;
-            }
-            // Update statistics and charts.
-            const stats = computeBasicStats(data);
-            updateBasicStats(stats);
-            createEyeMovementChart(data);
-            createPupilDilationChart(data);
-            createHeadMovementChart(data);
+          },
+          error: function(error) {
+            console.error('Error parsing CSV:', error);
+            alert('Failed to parse CSV file: ' + error.message);
           }
         });
-      } else {
-        alert('Please select a CSV file first.');
+      } catch (error) {
+        console.error("Error in processFile:", error);
+        alert('Error processing file: ' + error.message);
       }
     }
+
+    // Add window error handler for uncaught errors
+    window.onerror = function(message, source, lineno, colno, error) {
+      console.error("Global error:", {message, source, lineno, colno, error});
+      logMessage(`Uncaught error: ${message}`);
+      return false;
+    };
   </script>
 </head>
 <body>
@@ -457,10 +611,10 @@
     <section id="liveTrackingSection">
       <h2>Live Eye Tracking Recorder</h2>
       <div id="liveControls">
-        <button onclick="startTracking()">Start Tracking</button>
-        <button onclick="stopTracking()">Stop Tracking</button>
-        <button onclick="exportCSV()">Export CSV</button>
-        <button onclick="clearData()">Clear Data</button>
+        <button type="button" onclick="startTracking()">Start Tracking</button>
+        <button type="button" onclick="stopTracking()">Stop Tracking</button>
+        <button type="button" onclick="exportCSV()">Export CSV</button>
+        <button type="button" onclick="clearData()">Clear Data</button>
       </div>
       <div id="liveData">
         <em>Live gaze data will appear here...</em>
@@ -478,7 +632,7 @@
       <div class="file-input">
         <label for="csvFile">Select CSV File:</label>
         <input type="file" id="csvFile" accept=".csv" title="Upload gaze tracking data CSV file">
-        <button onclick="processFile()">Analyze Data</button>
+        <button type="button" onclick="processFile()">Analyze Data</button>
       </div>
       <div class="stats-container" id="basicStats"></div>
       <div class="chart-container">
