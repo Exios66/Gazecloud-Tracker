@@ -1,87 +1,162 @@
-<!DOCTYPE HTML >
-<html>
-   <head>
-      <title>GazeCloudAPI</title>
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>GazeCloudAPI Data Recorder</title>
+    
+    <!-- Load required scripts -->
+    <script type="text/javascript">
+        window.scriptStatus = { gazeCloudAPI: false, papaParse: false };
 
-
-
- <script src="https://api.gazerecorder.com/GazeCloudAPI.js" ></script>
-
-
-      <style type="text/css">
-         body {
-         overflow: hidden;
-         }
-      </style>
-      <script type = "text/javascript" >
-
+        function loadScript(url, callback) {
+            const script = document.createElement('script');
+            script.type = 'text/javascript';
+            script.src = url;
+            script.async = true;
             
-         function PlotGaze(GazeData) {
+            script.onload = function () {
+                console.log(`Loaded: ${url}`);
+                callback();
+            };
+            script.onerror = function () {
+                console.error(`Failed to load script: ${url}`);
+                document.getElementById('status').textContent = `Error loading ${url}`;
+            };
+            document.head.appendChild(script);
+        }
 
-/*
-	GazeData.state // 0: valid gaze data; -1 : face tracking lost, 1 : gaze uncalibrated
-	GazeData.docX // gaze x in document coordinates
-	GazeData.docY // gaze y in document cordinates
-	GazeData.time // timestamp
-*/
+        function checkScriptsLoaded() {
+            if (window.scriptStatus.gazeCloudAPI && window.scriptStatus.papaParse) {
+                console.log("All scripts loaded.");
+                initializeApp();
+            }
+        }
 
-         
-             document.getElementById("GazeData").innerHTML = "GazeX: " + GazeData.GazeX + " GazeY: " + GazeData.GazeY;
-             document.getElementById("HeadPhoseData").innerHTML = " HeadX: " + GazeData.HeadX + " HeadY: " + GazeData.HeadY + " HeadZ: " + GazeData.HeadZ;
-             document.getElementById("HeadRotData").innerHTML = " Yaw: " + GazeData.HeadYaw + " Pitch: " + GazeData.HeadPitch + " Roll: " + GazeData.HeadRoll;
-         
+        loadScript('https://api.gazerecorder.com/GazeCloudAPI.js', function() {
+            window.scriptStatus.gazeCloudAPI = true;
+            checkScriptsLoaded();
+        });
 
-         var x = GazeData.docX;
-         var y = GazeData.docY;
-         
-         var gaze = document.getElementById("gaze");
-         x -= gaze .clientWidth/2;
-         y -= gaze .clientHeight/2;
-         
-         
+        loadScript('https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js', function() {
+            window.scriptStatus.papaParse = true;
+            checkScriptsLoaded();
+        });
+    </script>
 
-	gaze.style.left = x + "px";
-	gaze.style.top = y + "px";
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .controls, .data-display {
+            position: fixed;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .controls { top: 20px; left: 20px; z-index: 1000; }
+        .data-display { top: 20px; right: 20px; }
+        #status { margin-top: 10px; font-style: italic; }
+        button { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .start-btn { background: #4CAF50; color: white; }
+        .stop-btn { background: #f44336; color: white; }
+        .calibrate-btn { background: #2196F3; color: white; }
+        #debugLog {
+            position: fixed; bottom: 20px; left: 20px; right: 20px;
+            height: 150px; background: rgba(0, 0, 0, 0.8);
+            color: #00ff00; font-family: monospace; padding: 10px;
+            overflow-y: auto; border-radius: 8px; font-size: 12px;
+        }
+    </style>
+</head>
 
-         
-         if(GazeData.state != 0)
-         {
-         	if( gaze.style.display  == 'block')
-         	gaze  .style.display = 'none';
-         }
-         else
-         {
-         	if( gaze.style.display  == 'none')
-         	gaze  .style.display = 'block';
-         }
-         
-         }
-         
-         //////set callbacks/////////
-   window.addEventListener("load", function() {
+<body>
+    <div class="controls">
+        <button class="calibrate-btn" onclick="startCalibration()">Calibrate</button>
+        <button class="start-btn" onclick="startRecording()" disabled>Start</button>
+        <button class="stop-btn" onclick="stopRecording()" disabled>Stop</button>
+        <p id="status">Loading scripts...</p>
+    </div>
 
-         GazeCloudAPI.OnCalibrationComplete =function(){ console.log('gaze Calibration Complete')  }
-         GazeCloudAPI.OnCamDenied =  function(){ console.log('camera  access denied')  }
-         GazeCloudAPI.OnError =  function(msg){ console.log('err: ' + msg)  }
-         GazeCloudAPI.UseClickRecalibration = true;
-      	 GazeCloudAPI.OnResult = PlotGaze; 
-          });
-     
-      </script>
-   </head>
-   <body >
-      <h1>GazeCloudAPI integration example</h1>
-      <button  type="button" onclick="GazeCloudAPI.StartEyeTracking();">Start</button>
-      <button  type="button" onclick="GazeCloudAPI.StopEyeTracking();">Stop</button>
-      <div >
-         <p >  
-            Real-Time Result:
-         <p id = "GazeData" > </p>
-         <p id = "HeadPhoseData" > </p>
-         <p id = "HeadRotData" > </p>
-         </p>
-      </div>
-      <div id ="gaze" style ='position: absolute;display:none;width: 100px;height: 100px;border-radius: 50%;border: solid 2px  rgba(255, 255,255, .2);	box-shadow: 0 0 100px 3px rgba(125, 125,125, .5);	pointer-events: none;	z-index: 999999'></div>
-      ;  
-   </body>
+    <div class="data-display">
+        <p id="GazeData">Gaze Data: N/A</p>
+        <p id="HeadPoseData">Head Pose: N/A</p>
+        <p id="HeadRotData">Head Rotation: N/A</p>
+    </div>
+
+    <div id="debugLog"></div>
+
+    <script type="text/javascript">
+        let gazeData = [];
+        let isRecording = false;
+        let isCalibrated = false;
+
+        function logDebug(message) {
+            const logElement = document.getElementById('debugLog');
+            const timestamp = new Date().toISOString();
+            const logMessage = `[${timestamp}] ${message}`;
+            logElement.innerHTML += logMessage + '<br>';
+            logElement.scrollTop = logElement.scrollHeight;
+            console.log(logMessage);
+        }
+
+        function initializeApp() {
+            if (!window.GazeCloudAPI) {
+                logDebug("GazeCloudAPI failed to load.");
+                return;
+            }
+
+            document.querySelectorAll('button').forEach(btn => btn.disabled = false);
+            GazeCloudAPI.OnCalibrationComplete = function() {
+                isCalibrated = true;
+                logDebug("Calibration complete.");
+                updateStatus("Calibration complete.");
+            };
+
+            GazeCloudAPI.OnError = function(msg) {
+                logDebug(`Error: ${msg}`);
+                updateStatus(`Error: ${msg}`);
+            };
+
+            GazeCloudAPI.UseClickRecalibration = true;
+            GazeCloudAPI.OnResult = function(GazeData) {
+                document.getElementById("GazeData").textContent = `Gaze X: ${GazeData.GazeX.toFixed(2)} | Y: ${GazeData.GazeY.toFixed(2)}`;
+            };
+
+            logDebug("App initialized.");
+            updateStatus("Ready to start calibration.");
+        }
+
+        function startCalibration() {
+            if (!isCalibrated) {
+                logDebug("Starting calibration...");
+                updateStatus("Starting calibration...");
+                GazeCloudAPI.StartEyeTracking();
+                setTimeout(() => GazeCloudAPI.ForceCalibration(), 2000);
+            }
+        }
+
+        function startRecording() {
+            if (!isCalibrated) {
+                alert("Complete calibration first.");
+                return;
+            }
+            gazeData = [];
+            isRecording = true;
+            GazeCloudAPI.StartEyeTracking();
+            logDebug("Recording started.");
+            updateStatus("Recording...");
+        }
+
+        function stopRecording() {
+            if (!isRecording) return;
+            isRecording = false;
+            GazeCloudAPI.StopEyeTracking();
+            logDebug("Recording stopped.");
+            updateStatus("Recording stopped.");
+        }
+
+        function updateStatus(message) {
+            document.getElementById("status").textContent = message;
+        }
+    </script>
+</body>
 </html>
